@@ -1,4 +1,6 @@
-use std::{cmp::Ordering, collections::HashMap, env, fmt, fs, mem, path::PathBuf, process::exit, vec};
+use std::{
+    cmp::Ordering, collections::HashMap, env, fmt, fs, mem, path::PathBuf, process::exit, vec,
+};
 
 use chrono::{Duration, NaiveDate, Utc};
 use strum::IntoEnumIterator;
@@ -236,6 +238,32 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
     };
 }
 
+fn print_stats(stats: &Stats) {
+    println!("---");
+    let to_skip = (stats.average_spending_per_day.len() as isize - 30).max(0);
+    for (date, spent) in stats.average_spending_per_day.iter().skip(to_skip as usize) {
+        println!("{}: {:.2}", date, spent);
+    }
+    println!("---");
+    println!(
+        "Spent last month: {:.2} ({:.2} per day)",
+        stats.spent_last_month,
+        stats.spent_last_month / 30.0
+    );
+    for (category, spent) in stats.spent_last_month_by_category.iter() {
+        println!("{}: {:.2}", category, spent);
+    }
+    println!("---");
+    println!(
+        "Spent last year: {:.2} ({:.2} per day)",
+        stats.spent_last_year,
+        stats.spent_last_year / 365.0
+    );
+    for (category, spent) in stats.spent_last_year_by_category.iter() {
+        println!("{}: {:.2}", category, spent);
+    }
+}
+
 fn main() {
     let path = get_path();
 
@@ -255,26 +283,5 @@ fn main() {
     }
 
     let stats = gather_stats(&entries);
-    println!("---");
-    for (date, spent) in stats.average_spending_per_day {
-        println!("{}: {:.2}", date, spent);
-    }
-    println!("---");
-    println!(
-        "Spent last month: {:.2} ({:.2} per day)",
-        stats.spent_last_month,
-        stats.spent_last_month / 30.0
-    );
-    for (category, spent) in stats.spent_last_month_by_category {
-        println!("{}: {:.2}", category, spent);
-    }
-    println!("---");
-    println!(
-        "Spent last year: {:.2} ({:.2} per day)",
-        stats.spent_last_year,
-        stats.spent_last_year / 365.0
-    );
-    for (category, spent) in stats.spent_last_year_by_category {
-        println!("{}: {:.2}", category, spent);
-    }
+    print_stats(&stats);
 }
