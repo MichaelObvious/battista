@@ -1,8 +1,15 @@
 use std::{
-    cmp::Ordering, collections::HashMap, env, fmt, fs, mem, path::PathBuf, process::exit, vec,
+    cmp::Ordering,
+    collections::HashMap,
+    env,
+    fmt::{self, Debug},
+    fs, mem,
+    path::PathBuf,
+    process::exit,
+    vec,
 };
 
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -29,7 +36,7 @@ impl fmt::Display for Category {
                 Self::Shopping => String::from("Shopping"),
                 Self::Transport => String::from("Transport"),
                 Self::Travel => String::from("Travel"),
-                Self::Miscellaneous(a) => format!("Miscellaneous: {}", a),
+                Self::Miscellaneous(a) => format!("Miscellaneous ({})", a),
                 Self::Unknown => String::from("Unknown"),
             }
         })
@@ -53,6 +60,7 @@ struct Entry {
     date: NaiveDate,
     category: Category,
     end_date: NaiveDate,
+    payment_method: String,
     note: String,
 }
 
@@ -106,17 +114,22 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
             match field_idx {
                 0 => {
                     let mut parts = field.split('.');
-                    let units = parts.next().unwrap().parse::<i32>().unwrap();
-                    let cents = parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
+                    let units = parts.next().unwrap().trim().parse::<i32>().unwrap();
+                    let cents = parts
+                        .next()
+                        .unwrap_or("0")
+                        .trim()
+                        .parse::<u32>()
+                        .unwrap_or(0);
                     entry.value = (units, cents);
                 }
                 1 => {
-                    if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
+                    if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
                         entry.date = date;
                     } else {
                         eprintln!(
                             "[ERROR] Could not parse date `{}` in {}:{}",
-                            field,
+                            field.trim(),
                             filepath.display(),
                             line_idx + 2
                         );
@@ -124,15 +137,15 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                     }
                 }
                 2 => {
-                    entry.category = Category::from(field);
+                    entry.category = Category::from(field.trim());
                 }
                 3 => {
-                    if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
+                    if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
                         entry.end_date = date;
                     } else {
                         eprintln!(
                             "[ERROR] Could not parse date `{}` in {}:{}",
-                            field,
+                            field.trim(),
                             filepath.display(),
                             line_idx + 2
                         );
@@ -140,7 +153,10 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                     }
                 }
                 4 => {
-                    entry.note = String::from(field);
+                    entry.payment_method = String::from(field.trim());
+                }
+                5 => {
+                    entry.note = String::from(field.trim());
                 }
                 _ => {}
             }
@@ -170,12 +186,16 @@ struct Stats {
     spent_last_month_by_category: Vec<(Category, f64)>,
     spent_last_year: f64,
     spent_last_year_by_category: Vec<(Category, f64)>,
-    spent_current_year_by_month: Vec<(NaiveDate, f64)>,
     spent_current_year: f64,
+    spent_current_year_by_category: Vec<(Category, f64)>,
+    spent_current_year_by_payment_method: Vec<(String, f64)>,
+    spent_current_year_by_month: Vec<(u32, f64)>,
+    spent_current_year_per_day: f64,
 }
 
 fn gather_stats(entries: &Vec<Entry>) -> Stats {
     let today = Utc::now().date_naive();
+    let this_year = today.year_ce().1 as i32 * if today.year_ce().0 { 1 } else { -1 };
 
     let mut days: HashMap<NaiveDate, f64> = DateRange(entries.first().unwrap().date, today)
         .map(|x| (x, 0.0))
@@ -186,6 +206,14 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
 
     let mut spent_last_year = 0.0;
     let mut category_year_spent = HashMap::new();
+
+    let mut spent_current_year = 0.0;
+    let mut cur_year_month_spent = HashMap::new();
+    for i in 1..(today.month0() + 2) {
+        cur_year_month_spent.insert(i, 0.0);
+    }
+    let mut cur_year_category_spent = HashMap::new();
+    let mut cur_year_pm_spent = HashMap::new();
 
     for entry in entries.iter() {
         let num_days = (entry.end_date - entry.date).num_days().max(1);
@@ -204,8 +232,23 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
 
         if (entry.date - today).num_days() <= 365 {
             spent_last_year += value;
+
             let prev = category_year_spent.get(&entry.category).unwrap_or(&0.0);
             category_year_spent.insert(&entry.category, prev + value);
+        }
+
+        if entry.date.year() == this_year {
+            spent_current_year += value;
+
+            let entry_month = entry.date.month0() + 1;
+            let prev = cur_year_month_spent.get(&entry_month).unwrap_or(&0.0);
+            cur_year_month_spent.insert(entry_month, prev + value);
+
+            let prev = cur_year_category_spent.get(&entry.category).unwrap_or(&0.0);
+            cur_year_category_spent.insert(&entry.category, prev + value);
+
+            let prev = cur_year_pm_spent.get(&entry.payment_method).unwrap_or(&0.0);
+            cur_year_pm_spent.insert(&entry.payment_method, prev + value);
         }
     }
 
@@ -227,40 +270,100 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
         .collect();
     spent_last_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
 
+    let spent_current_year_per_day = spent_current_year
+        / (today - NaiveDate::from_ymd_opt(this_year, 1, 1).unwrap() + Duration::days(1)).num_days()
+            as f64;
+
+    let mut spent_current_year_by_category: Vec<_> = cur_year_category_spent
+        .iter()
+        .map(|a| ((**a.0).clone(), a.1.to_owned()))
+        .collect();
+    spent_current_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
+
+    let mut spent_current_year_by_month: Vec<_> = cur_year_month_spent
+        .iter()
+        .map(|a| (a.0.to_owned(), a.1.to_owned()))
+        .collect();
+    spent_current_year_by_month.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut spent_current_year_by_payment_method: Vec<_> = cur_year_pm_spent
+        .iter()
+        .map(|a| ((**a.0).clone(), a.1.to_owned()))
+        .collect();
+    spent_current_year_by_payment_method.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
+
     return Stats {
-        average_spending_per_day: average_spending_per_day,
-        spent_last_month: spent_last_month,
-        spent_last_month_by_category: spent_last_month_by_category,
-        spent_last_year: spent_last_year,
-        spent_last_year_by_category: spent_last_year_by_category,
-        spent_current_year_by_month: vec![],
-        spent_current_year: 0.0,
+        average_spending_per_day,
+        spent_last_month,
+        spent_last_month_by_category,
+        spent_last_year,
+        spent_last_year_by_category,
+        spent_current_year,
+        spent_current_year_by_category,
+        spent_current_year_by_payment_method,
+        spent_current_year_by_month,
+        spent_current_year_per_day,
     };
 }
 
-fn print_stats(stats: &Stats) {
+fn print_stats(
+    stats: &Stats,
+    last_30_days: bool,
+    last_month: bool,
+    last_year: bool,
+    current_year: bool,
+) {
     println!("---");
-    let to_skip = (stats.average_spending_per_day.len() as isize - 30).max(0);
-    for (date, spent) in stats.average_spending_per_day.iter().skip(to_skip as usize) {
-        println!("{}: {:.2}", date.format("%d/%m/%Y"), spent);
+    if last_30_days {
+        let to_skip = (stats.average_spending_per_day.len() as isize - 30).max(0);
+        for (date, spent) in stats.average_spending_per_day.iter().skip(to_skip as usize) {
+            println!("{}: {:.2}", date.format("%d/%m/%Y"), spent);
+        }
+        println!("---");
     }
-    println!("---");
-    println!(
-        "Spent last month: {:.2} ({:.2} per day)",
-        stats.spent_last_month,
-        stats.spent_last_month / 30.0
-    );
-    for (category, spent) in stats.spent_last_month_by_category.iter() {
-        println!("{}: {:.2}", category, spent);
+
+    if last_month {
+        println!(
+            "Spent last month: {:.2} ({:.2} per day)",
+            stats.spent_last_month,
+            stats.spent_last_month / 30.0
+        );
+        for (category, spent) in stats.spent_last_month_by_category.iter() {
+            println!("  {:13}: {:.2}", category.to_string(), spent);
+        }
+        println!("---");
     }
-    println!("---");
-    println!(
-        "Spent last year: {:.2} ({:.2} per day)",
-        stats.spent_last_year,
-        stats.spent_last_year / 365.0
-    );
-    for (category, spent) in stats.spent_last_year_by_category.iter() {
-        println!("{}: {:.2}", category, spent);
+
+    if last_year {
+        println!(
+            "Spent last year: {:.2} ({:.2} per day)",
+            stats.spent_last_year,
+            stats.spent_last_year / 365.0
+        );
+        for (category, spent) in stats.spent_last_year_by_category.iter() {
+            println!("  {:13}: {:.2}", category.to_string(), spent);
+        }
+        println!("---");
+    }
+
+    if current_year {
+        println!(
+            "Spent current year: {:.2} ({:.2} per day)",
+            stats.spent_current_year, stats.spent_current_year_per_day
+        );
+        for (category, spent) in stats.spent_current_year_by_category.iter() {
+            println!("  {:13}: {:.2}", category.to_string(), spent);
+        }
+        println!("  ---");
+        for (pm, spent) in stats.spent_current_year_by_payment_method.iter() {
+            println!("  {:9}: {:.2}", pm, spent);
+        }
+        println!("  ---");
+        for (month, spent) in stats.spent_current_year_by_month.iter() {
+            let month = NaiveDate::from_ymd_opt(1, *month, 1).unwrap().format("%B");
+            println!("  {:9}: {:.2}", month, spent);
+        }
+        println!("---");
     }
 }
 
@@ -275,7 +378,6 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let entries = parse_file(path.unwrap());
-    println!("{:?}", entries);
 
     if entries.is_empty() {
         println!("[INFO] Provided file has no entries. Exiting...");
@@ -283,5 +385,5 @@ fn main() {
     }
 
     let stats = gather_stats(&entries);
-    print_stats(&stats);
+    print_stats(&stats, false, false, false, true);
 }
