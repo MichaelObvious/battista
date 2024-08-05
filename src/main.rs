@@ -1,6 +1,7 @@
-use std::{cmp::Ordering, env, fmt, fs, path::PathBuf, process::exit};
+use core::num;
+use std::{cmp::Ordering, collections::HashMap, env, fmt, fs, hash::Hash, mem, path::PathBuf, process::exit, thread::yield_now};
 
-use chrono::NaiveDate;
+use chrono::{Date, DateTime, Duration, NaiveDate, Utc};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -14,7 +15,7 @@ enum Category {
     Travel,
     Miscellaneous(String),
     #[default]
-    Unknown
+    Unknown,
 }
 
 impl fmt::Display for Category {
@@ -36,7 +37,7 @@ impl fmt::Display for Category {
 
 impl From<&str> for Category {
     fn from(s: &str) -> Self {
-        for c in Category::iter()  {
+        for c in Category::iter() {
             if &format!("{}", c) == s {
                 return c;
             }
@@ -54,6 +55,21 @@ struct Entry {
     note: String,
 }
 
+struct DateRange(NaiveDate, NaiveDate);
+
+impl Iterator for DateRange {
+    type Item = NaiveDate;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 <= self.1 {
+            let next = self.0 + Duration::days(1);
+            Some(mem::replace(&mut self.0, next))
+        } else {
+            None
+        }
+    }
+}
+
 fn print_usage() {
     println!("USAGE: {} <path/to/file.csv>", env::args().next().unwrap());
 }
@@ -68,10 +84,10 @@ fn get_path() -> Option<PathBuf> {
             Ok(true) => {
                 path = Some(cur_path);
                 break;
-            },
-            _ => {},
+            }
+            _ => {}
         }
-    };
+    }
 
     return path;
 }
@@ -92,44 +108,56 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                     let units = parts.next().unwrap().parse::<i32>().unwrap();
                     let cents = parts.next().unwrap_or("0").parse::<u32>().unwrap_or(0);
                     entry.value = (units, cents);
-                },
+                }
                 1 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
                         entry.date = date;
                     } else {
-                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), line_idx+2);
+                        eprintln!(
+                            "[ERROR] Could not parse date `{}` in {}:{}",
+                            field,
+                            filepath.display(),
+                            line_idx + 2
+                        );
                         exit(1);
                     }
-                },
+                }
                 2 => {
                     entry.category = Category::from(field);
-                },
+                }
                 3 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
                         entry.end_date = date;
                     } else {
-                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), line_idx+2);
+                        eprintln!(
+                            "[ERROR] Could not parse date `{}` in {}:{}",
+                            field,
+                            filepath.display(),
+                            line_idx + 2
+                        );
                         exit(1);
                     }
-                },
+                }
                 4 => {
                     entry.note = String::from(field);
-                },
+                }
                 _ => {}
             }
         }
 
         if Ordering::is_gt(entry.date.cmp(&entry.end_date)) {
-            eprintln!("[ERROR] Date is later than end date in {}:{}", filepath.display(), line_idx+2);
+            eprintln!(
+                "[ERROR] Date is later than end date in {}:{}",
+                filepath.display(),
+                line_idx + 2
+            );
             exit(1);
         }
 
         entries.push(entry);
     }
 
-    entries.sort_by(|a, b| {
-        a.date.cmp(&b.date)
-    });
+    entries.sort_by(|a, b| a.date.cmp(&b.date));
 
     return entries;
 }
@@ -146,4 +174,33 @@ fn main() {
     assert!(path.is_some(), "Rust has a problem here.");
     let entries = parse_file(path.unwrap());
     println!("{:?}", entries);
+
+    if entries.is_empty() {
+        println!("[INFO] Provided file has no entries. Exiting...");
+        return;
+    }
+
+    let today = Utc::now().date_naive();
+
+    let mut days: HashMap<NaiveDate, f64> =
+            DateRange(entries.first().unwrap().date, today)
+                .map(|x| (x, 0.0))
+                .collect();
+    
+    for entry in entries.iter() {
+        let num_days = (entry.end_date - entry.date).num_days().max(1); 
+        let cents = entry.value.1 as f64;
+        let value = entry.value.0 as f64 + cents / 10.0_f64.powf((cents+1.0).log10().ceil());
+        let average_value = value / num_days as f64;
+        for d in DateRange(entry.date, entry.end_date.min(today)) {
+            *days.get_mut(&d).unwrap() += average_value;
+        }
+    }
+
+    let mut days_vec: Vec<_> = days.iter().collect();
+    days_vec.sort_by(|a,b| a.0.cmp(&b.0));
+
+    for (date, spent) in days_vec.iter() {
+        println!("{}: {}", date, spent);
+    }
 }
