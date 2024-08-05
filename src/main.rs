@@ -17,6 +17,7 @@ use strum_macros::EnumIter;
 enum Category {
     Grocery,
     Entrateinment,
+    Healthcare,
     Restaurants,
     Shopping,
     Transport,
