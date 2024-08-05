@@ -187,9 +187,9 @@ struct Stats {
     spent_last_year: f64,
     spent_last_year_by_category: Vec<(Category, f64)>,
     spent_current_year: f64,
-    spent_current_year_by_category: Vec<(Category, f64)>,
+    spent_current_year_by_category: Vec<(Category, f64, f64)>,
     spent_current_year_by_payment_method: Vec<(String, f64)>,
-    spent_current_year_by_month: Vec<(u32, f64)>,
+    spent_current_year_by_month: Vec<(u32, f64, f64)>,
     spent_current_year_per_day: f64,
 }
 
@@ -277,12 +277,28 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
     let mut spent_current_year_by_category: Vec<_> = cur_year_category_spent
         .iter()
         .map(|a| ((**a.0).clone(), a.1.to_owned()))
+        .map(|a| (a.0, a.1, a.1 / spent_current_year))
         .collect();
     spent_current_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
 
     let mut spent_current_year_by_month: Vec<_> = cur_year_month_spent
         .iter()
         .map(|a| (a.0.to_owned(), a.1.to_owned()))
+        .map(|x| {
+            (
+                x.0,
+                x.1,
+                x.1 / (NaiveDate::from_ymd_opt(
+                    this_year + if x.0 == 12 { 1 } else { 0 },
+                    (x.0 % 12) + 1,
+                    1,
+                )
+                .unwrap()
+                .min(today)
+                    - NaiveDate::from_ymd_opt(this_year, x.0, 1).unwrap())
+                .num_days() as f64,
+            )
+        })
         .collect();
     spent_current_year_by_month.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -347,21 +363,23 @@ fn print_stats(
     }
 
     if current_year {
+        println!("Spent current year");
         println!(
-            "Spent current year: {:.2} ({:.2} per day)",
+            "  {:.2} ({:.2} per day)",
             stats.spent_current_year, stats.spent_current_year_per_day
         );
-        for (category, spent) in stats.spent_current_year_by_category.iter() {
-            println!("  {:13}: {:.2}", category.to_string(), spent);
+        println!("---");
+        for (category, spent, percentage) in stats.spent_current_year_by_category.iter() {
+            println!("  {:13}: {:7.2} ({:5.2}%)", category.to_string(), spent, percentage*100.0);
         }
         println!("  ---");
         for (pm, spent) in stats.spent_current_year_by_payment_method.iter() {
             println!("  {:9}: {:.2}", pm, spent);
         }
         println!("  ---");
-        for (month, spent) in stats.spent_current_year_by_month.iter() {
+        for (month, spent, per_day) in stats.spent_current_year_by_month.iter() {
             let month = NaiveDate::from_ymd_opt(1, *month, 1).unwrap().format("%B");
-            println!("  {:9}: {:.2}", month, spent);
+            println!("  {:9}: {:6.2} ({:5.2})", month, spent, per_day);
         }
         println!("---");
     }
