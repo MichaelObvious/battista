@@ -82,11 +82,11 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
 
     let mut entries = vec![];
 
-    for (i, line) in lines.enumerate() {
+    for (line_idx, line) in lines.enumerate() {
         let fields = line.split(';');
         let mut entry = Entry::default();
-        for (i, field) in fields.enumerate() {
-            match i {
+        for (field_idx, field) in fields.enumerate() {
+            match field_idx {
                 0 => {
                     let mut parts = field.split('.');
                     let units = parts.next().unwrap().parse::<i32>().unwrap();
@@ -97,7 +97,7 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                     if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
                         entry.date = date;
                     } else {
-                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), i+2);
+                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), line_idx+2);
                         exit(1);
                     }
                 },
@@ -108,7 +108,7 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                     if let Ok(date) = NaiveDate::parse_from_str(field, "%d/%m/%Y") {
                         entry.end_date = date;
                     } else {
-                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), i+2);
+                        eprintln!("[ERROR] Could not parse date `{}` in {}:{}", field, filepath.display(), line_idx+2);
                         exit(1);
                     }
                 },
