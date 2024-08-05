@@ -3,13 +3,22 @@ use std::{
     collections::HashMap,
     env,
     fmt::{self, Debug},
-    fs, mem,
+    fs,
+    hash::Hash,
+    mem,
     path::PathBuf,
     process::exit,
+    str::FromStr,
     vec,
 };
 
 use chrono::{Datelike, Duration, NaiveDate, Utc};
+use plotters::{
+    chart::ChartBuilder,
+    prelude::{BitMapBackend, IntoDrawingArea, PathElement},
+    series::LineSeries,
+    style::{Color, IntoFont, BLACK, RED, WHITE},
+};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -103,7 +112,7 @@ fn get_path() -> Option<PathBuf> {
     return path;
 }
 
-fn parse_file(filepath: PathBuf) -> Vec<Entry> {
+fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
     let content = fs::read_to_string(&filepath).unwrap_or_default();
     let lines = content.lines().skip(1);
 
@@ -372,7 +381,12 @@ fn print_stats(
         );
         println!("  ---");
         for (category, spent, percentage) in stats.spent_current_year_by_category.iter() {
-            println!("  {:13}: {:7.2} ({:5.2}%)", category.to_string(), spent, percentage*100.0);
+            println!(
+                "  {:13}: {:7.2} ({:5.2}%)",
+                category.to_string(),
+                spent,
+                percentage * 100.0
+            );
         }
         println!("  ---");
         for (pm, spent) in stats.spent_current_year_by_payment_method.iter() {
@@ -387,6 +401,73 @@ fn print_stats(
     }
 }
 
+fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
+    let today = Utc::now().date_naive();
+    let mut monthly_spending = HashMap::<(i32, u32), f64>::new();
+    
+    let mut max_value: f64 = 0.0;
+    for e in entries.iter() {
+        let year = e.date.year_ce().1 as i32 * if e.date.year_ce().0 { 1 } else { -1 };
+        let month = e.date.month0() + 1;
+        let cents = e.value.1 as f64;
+        let value = e.value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil());
+        let value = value
+            / (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1)
+                .unwrap()
+                .min(today)
+                - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+            .num_days() as f64;
+
+        let prev = monthly_spending.get(&(year, month)).unwrap_or(&0.0);
+        max_value = max_value.max(prev + value);
+        monthly_spending.insert((year, month), prev + value);
+    }
+
+    let root = BitMapBackend::new(filepath, (960, 720)).into_drawing_area();
+    root.fill(&plotters::style::WHITE).unwrap();
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Monthly spending", ("serif", 25).into_font())
+        .margin(5)
+        .x_label_area_size(30)
+        .y_label_area_size(30)
+        .build_cartesian_2d(
+            entries.first().unwrap().date.year_ce().1 as f32
+                ..entries.last().unwrap().date.year_ce().1 as f32 + 1.0,
+            0.0f32..(max_value as f32 * 1.125).round(),
+        )
+        .unwrap();
+
+    chart.configure_mesh().draw().unwrap();
+
+
+    let mut monthly_spending: Vec<_> = monthly_spending.into_iter().collect();
+    monthly_spending.sort_by(|a, b| {
+        (a.0 .0 as f64 + a.0 .1 as f64 / 13.0)
+            .partial_cmp(&(b.0 .0 as f64 + b.0 .1 as f64 / 13.0))
+            .unwrap()
+    });
+    // monthly_spending.iter().map(|a|)
+
+    chart
+        .draw_series(LineSeries::new(
+            monthly_spending
+                .iter()
+                .map(|a| (a.0 .0 as f32 + (a.0 .1 - 1) as f32 / 12.0, a.1 as f32)),
+            &RED,
+        ))
+        .unwrap();
+    // .label("y = x^2");
+    // .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+
+    // chart
+    //     .configure_series_labels()
+    //     .background_style(&WHITE.mix(0.8))
+    //     .border_style(&BLACK)
+    //     .draw().unwrap();
+
+    root.present().unwrap();
+}
+
 fn main() {
     let path = get_path();
 
@@ -397,7 +478,8 @@ fn main() {
     }
 
     assert!(path.is_some(), "Rust has a problem here.");
-    let entries = parse_file(path.unwrap());
+    let path = path.unwrap();
+    let entries = parse_file(&path);
 
     if entries.is_empty() {
         println!("[INFO] Provided file has no entries. Exiting...");
@@ -406,4 +488,9 @@ fn main() {
 
     let stats = gather_stats(&entries);
     print_stats(&stats, false, false, false, true);
+
+    let mut out_file_path = path.clone();
+    out_file_path.set_extension("png");
+    plot_monthly_usage(&out_file_path, &entries);
+    println!("Monthly usage chart saved in {}", out_file_path.display());
 }
