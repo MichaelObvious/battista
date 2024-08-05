@@ -368,7 +368,7 @@ fn print_stats(
             "  {:.2} ({:.2} per day)",
             stats.spent_current_year, stats.spent_current_year_per_day
         );
-        println!("---");
+        println!("  ---");
         for (category, spent, percentage) in stats.spent_current_year_by_category.iter() {
             println!("  {:13}: {:7.2} ({:5.2}%)", category.to_string(), spent, percentage*100.0);
         }
