@@ -219,13 +219,13 @@ fn gather_stats(entries: &Vec<Entry>) -> Stats {
         .iter()
         .map(|a| ((**a.0).clone(), a.1.to_owned()))
         .collect();
-    spent_last_month_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    spent_last_month_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
 
     let mut spent_last_year_by_category: Vec<_> = category_month_spent
         .iter()
         .map(|a| ((**a.0).clone(), a.1.to_owned()))
         .collect();
-    spent_last_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    spent_last_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
 
     return Stats {
         average_spending_per_day: average_spending_per_day,
@@ -242,7 +242,7 @@ fn print_stats(stats: &Stats) {
     println!("---");
     let to_skip = (stats.average_spending_per_day.len() as isize - 30).max(0);
     for (date, spent) in stats.average_spending_per_day.iter().skip(to_skip as usize) {
-        println!("{}: {:.2}", date, spent);
+        println!("{}: {:.2}", date.format("%d/%m/%Y"), spent);
     }
     println!("---");
     println!(
