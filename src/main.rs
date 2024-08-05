@@ -1,4 +1,4 @@
-use std::{env, fmt, fs, path::PathBuf, process::exit};
+use std::{cmp::Ordering, env, fmt, fs, path::PathBuf, process::exit};
 
 use chrono::NaiveDate;
 use strum::IntoEnumIterator;
@@ -118,8 +118,18 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
                 _ => {}
             }
         }
+
+        if Ordering::is_gt(entry.date.cmp(&entry.end_date)) {
+            eprintln!("[ERROR] Date is later than end date in {}:{}", filepath.display(), line_idx+2);
+            exit(1);
+        }
+
         entries.push(entry);
     }
+
+    entries.sort_by(|a, b| {
+        a.date.cmp(&b.date)
+    });
 
     return entries;
 }
