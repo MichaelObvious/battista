@@ -1,11 +1,10 @@
-use core::num;
-use std::{cmp::Ordering, collections::HashMap, env, fmt, fs, hash::Hash, mem, path::PathBuf, process::exit, thread::yield_now};
+use std::{cmp::Ordering, collections::HashMap, env, fmt, fs, mem, path::PathBuf, process::exit, vec};
 
-use chrono::{Date, DateTime, Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[derive(Debug, Default, EnumIter)]
+#[derive(Clone, Debug, Default, EnumIter, PartialEq, Hash, Eq)]
 enum Category {
     Grocery,
     Entrateinment,
@@ -162,6 +161,81 @@ fn parse_file(filepath: PathBuf) -> Vec<Entry> {
     return entries;
 }
 
+#[derive(Default, Debug)]
+struct Stats {
+    average_spending_per_day: Vec<(NaiveDate, f64)>,
+    spent_last_month: f64,
+    spent_last_month_by_category: Vec<(Category, f64)>,
+    spent_last_year: f64,
+    spent_last_year_by_category: Vec<(Category, f64)>,
+    spent_current_year_by_month: Vec<(NaiveDate, f64)>,
+    spent_current_year: f64,
+}
+
+fn gather_stats(entries: &Vec<Entry>) -> Stats {
+    let today = Utc::now().date_naive();
+
+    let mut days: HashMap<NaiveDate, f64> = DateRange(entries.first().unwrap().date, today)
+        .map(|x| (x, 0.0))
+        .collect();
+
+    let mut spent_last_month = 0.0;
+    let mut category_month_spent = HashMap::new();
+
+    let mut spent_last_year = 0.0;
+    let mut category_year_spent = HashMap::new();
+
+    for entry in entries.iter() {
+        let num_days = (entry.end_date - entry.date).num_days().max(1);
+        let cents = entry.value.1 as f64;
+        let value = entry.value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil());
+        let average_value = value / num_days as f64;
+        for d in DateRange(entry.date, entry.end_date.min(today)) {
+            *days.get_mut(&d).unwrap() += average_value;
+        }
+
+        if (entry.date - today).num_days() <= 30 {
+            spent_last_month += value;
+            let prev = category_month_spent.get(&entry.category).unwrap_or(&0.0);
+            category_month_spent.insert(&entry.category, prev + value);
+        }
+
+        if (entry.date - today).num_days() <= 365 {
+            spent_last_year += value;
+            let prev = category_year_spent.get(&entry.category).unwrap_or(&0.0);
+            category_year_spent.insert(&entry.category, prev + value);
+        }
+    }
+
+    let mut average_spending_per_day: Vec<_> = days
+        .iter()
+        .map(|a| (a.0.to_owned(), a.1.to_owned()))
+        .collect();
+    average_spending_per_day.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut spent_last_month_by_category: Vec<_> = category_month_spent
+        .iter()
+        .map(|a| ((**a.0).clone(), a.1.to_owned()))
+        .collect();
+    spent_last_month_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    let mut spent_last_year_by_category: Vec<_> = category_month_spent
+        .iter()
+        .map(|a| ((**a.0).clone(), a.1.to_owned()))
+        .collect();
+    spent_last_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    return Stats {
+        average_spending_per_day: average_spending_per_day,
+        spent_last_month: spent_last_month,
+        spent_last_month_by_category: spent_last_month_by_category,
+        spent_last_year: spent_last_year,
+        spent_last_year_by_category: spent_last_year_by_category,
+        spent_current_year_by_month: vec![],
+        spent_current_year: 0.0,
+    };
+}
+
 fn main() {
     let path = get_path();
 
@@ -180,27 +254,27 @@ fn main() {
         return;
     }
 
-    let today = Utc::now().date_naive();
-
-    let mut days: HashMap<NaiveDate, f64> =
-            DateRange(entries.first().unwrap().date, today)
-                .map(|x| (x, 0.0))
-                .collect();
-    
-    for entry in entries.iter() {
-        let num_days = (entry.end_date - entry.date).num_days().max(1); 
-        let cents = entry.value.1 as f64;
-        let value = entry.value.0 as f64 + cents / 10.0_f64.powf((cents+1.0).log10().ceil());
-        let average_value = value / num_days as f64;
-        for d in DateRange(entry.date, entry.end_date.min(today)) {
-            *days.get_mut(&d).unwrap() += average_value;
-        }
+    let stats = gather_stats(&entries);
+    println!("---");
+    for (date, spent) in stats.average_spending_per_day {
+        println!("{}: {:.2}", date, spent);
     }
-
-    let mut days_vec: Vec<_> = days.iter().collect();
-    days_vec.sort_by(|a,b| a.0.cmp(&b.0));
-
-    for (date, spent) in days_vec.iter() {
-        println!("{}: {}", date, spent);
+    println!("---");
+    println!(
+        "Spent last month: {:.2} ({:.2} per day)",
+        stats.spent_last_month,
+        stats.spent_last_month / 30.0
+    );
+    for (category, spent) in stats.spent_last_month_by_category {
+        println!("{}: {:.2}", category, spent);
+    }
+    println!("---");
+    println!(
+        "Spent last year: {:.2} ({:.2} per day)",
+        stats.spent_last_year,
+        stats.spent_last_year / 365.0
+    );
+    for (category, spent) in stats.spent_last_year_by_category {
+        println!("{}: {:.2}", category, spent);
     }
 }
