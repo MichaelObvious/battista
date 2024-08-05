@@ -33,6 +33,7 @@ impl fmt::Display for Category {
             match self {
                 Self::Grocery => String::from("Grocery"),
                 Self::Entrateinment => String::from("Entrateinment"),
+                Self::Healthcare => String::from("Healthcare"),
                 Self::Restaurants => String::from("Restaurants"),
                 Self::Shopping => String::from("Shopping"),
                 Self::Transport => String::from("Transport"),
