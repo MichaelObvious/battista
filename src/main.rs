@@ -120,13 +120,31 @@ fn moving_average(xs: Vec<f64>, window: isize) -> Vec<f64> {
     return average;
 }
 
-// fn days_in_month(d: NaiveDate) -> i64 {
-//     let year = d.year_ce().1 as i32 * if d.year_ce().0 { 1 } else { -1 };
-//     let month = d.month0() + 1;
-//     (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
-//         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
-//     .num_days()
-// }
+fn weighted_moving_average(xs: Vec<(f64, f64)>, window: isize) -> Vec<f64> {
+    let mut average = Vec::new();
+
+    for i in 0..xs.len() {
+        let mut a = 0.0;
+        let mut d = 0.0;
+        let start = (i as isize - window + 1).max(0) as usize;
+        for j in start..=i {
+            a += xs[j].0 * xs[j].1;
+            d += xs[j].1;
+        }
+        a /= d;
+        average.push(a);
+    }
+    assert!(average.len() == xs.len());
+    return average;
+}
+
+fn days_in_month(d: NaiveDate) -> i64 {
+    let year = d.year_ce().1 as i32 * if d.year_ce().0 { 1 } else { -1 };
+    let month = d.month0() + 1;
+    (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
+        - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+    .num_days()
+}
 
 fn print_usage() {
     println!("USAGE: {} <path/to/file.csv>", env::args().next().unwrap());
@@ -477,10 +495,10 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         monthly_spending.insert((year, month), prev + value);
     }
 
-    let mut monthly_values = monthly_spending.into_iter().collect::<Vec<_>>();
-    monthly_values
+    let mut old_monthly_values = monthly_spending.into_iter().collect::<Vec<_>>();
+    old_monthly_values
         .sort_by(|a, b| (a.0 .0 * 13 + a.0 .1 as i32).cmp(&(b.0 .0 * 13 + b.0 .1 as i32)));
-    let monthly_values = monthly_values.iter().map(|x| x.1).collect::<Vec<_>>();
+    let monthly_values = old_monthly_values.iter().map(|x| x.1).collect::<Vec<_>>();
 
     let month_labels = (0..=num_months).map(|x| {
         let n = x + start_month as i32;
@@ -533,7 +551,8 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
     let font = ("serif", 28.0).into_font();
     let pixels_per_unit_x =
         chart.plotting_area().get_x_axis_pixel_range().len() as f32 / num_months as f32;
-    let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
+    let pixels_per_unit_y =
+        chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
 
     for (i, label) in month_labels.into_iter().enumerate() {
         let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
@@ -559,28 +578,48 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
             .unwrap();
     }
 
-    let mut pts = moving_average(monthly_values, 12)
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (i as f32 + 0.5, *v))
-        .collect::<Vec<_>>();
+    let values = old_monthly_values
+        .into_iter()
+        .map(|(a, b)| {
+            (
+                b,
+                days_in_month(NaiveDate::from_ymd_opt(a.0, a.1, 1).unwrap()) as f64,
+            )
+        })
+        .collect();
+
+    let mut pts = if true {
+        weighted_moving_average(values, 12)
+    } else {
+        moving_average(monthly_values, 12)
+    }
+    .iter()
+    .enumerate()
+    .map(|(i, v)| (i as f32 + 0.5, *v))
+    .collect::<Vec<_>>();
 
     pts.insert(0, (0.0, pts.first().unwrap().1));
     pts.push(((num_months + 1) as f32, pts.last().unwrap().1));
 
     chart
-        .draw_series(LineSeries::new(pts.clone().into_iter(), AMBER.stroke_width(10)))
+        .draw_series(LineSeries::new(
+            pts.clone().into_iter(),
+            AMBER.stroke_width(10),
+        ))
         .unwrap();
 
     {
-        let value =  pts.last().unwrap().1;
+        let value = pts.last().unwrap().1;
         let label = format!("Average: {:.2}", value);
         let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
         let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
         chart
             .draw_series(std::iter::once(Text::new(
                 label,
-                ((num_months as f32 + 1.0) - offset_x - 20.0/pixels_per_unit_x, value + offset_y*1.5), // Positioning the label
+                (
+                    (num_months as f32 + 1.0) - offset_x - 20.0 / pixels_per_unit_x,
+                    value + offset_y * 1.5,
+                ), // Positioning the label
                 font.clone().style(FontStyle::Bold),
             )))
             .unwrap();
@@ -613,5 +652,8 @@ fn main() {
     let mut out_file_path = path.clone();
     out_file_path.set_extension("png");
     plot_monthly_usage(&out_file_path, &entries);
-    println!("Monthly usage chart saved in `{}`.", out_file_path.display());
+    println!(
+        "Monthly usage chart saved in `{}`.",
+        out_file_path.display()
+    );
 }
