@@ -613,5 +613,5 @@ fn main() {
     let mut out_file_path = path.clone();
     out_file_path.set_extension("png");
     plot_monthly_usage(&out_file_path, &entries);
-    println!("Monthly usage chart saved in {}", out_file_path.display());
+    println!("Monthly usage chart saved in `{}`.", out_file_path.display());
 }
