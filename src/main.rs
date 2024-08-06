@@ -8,16 +8,15 @@ use std::{
     mem,
     path::PathBuf,
     process::exit,
-    str::FromStr,
     vec,
 };
 
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use plotters::{
     chart::ChartBuilder,
-    prelude::{BitMapBackend, IntoDrawingArea, PathElement},
+    prelude::{BitMapBackend, IntoDrawingArea},
     series::LineSeries,
-    style::{Color, IntoFont, BLACK, RED, WHITE},
+    style::{IntoFont, RED},
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -25,12 +24,18 @@ use strum_macros::EnumIter;
 #[derive(Clone, Debug, Default, EnumIter, PartialEq, Hash, Eq)]
 enum Category {
     Grocery,
+    Education,
     Entrateinment,
     Healthcare,
+    Hobby,
+    Rent,
     Restaurants,
+    Savings,
     Shopping,
-    Transport,
+    Taxes,
+    Transportation,
     Travel,
+    Utilities,
     Miscellaneous(String),
     #[default]
     Unknown,
@@ -41,12 +46,18 @@ impl fmt::Display for Category {
         write!(f, "{}", {
             match self {
                 Self::Grocery => String::from("Grocery"),
+                Self::Education => String::from("Education"),
                 Self::Entrateinment => String::from("Entrateinment"),
                 Self::Healthcare => String::from("Healthcare"),
+                Self::Hobby => String::from("Hobby"),
+                Self::Rent => String::from("Rent"),
                 Self::Restaurants => String::from("Restaurants"),
+                Self::Savings => String::from("Savings"),
                 Self::Shopping => String::from("Shopping"),
-                Self::Transport => String::from("Transport"),
+                Self::Taxes => String::from("Taxes"),
+                Self::Transportation => String::from("Transportation"),
                 Self::Travel => String::from("Travel"),
+                Self::Utilities => String::from("Utilities"),
                 Self::Miscellaneous(a) => format!("Miscellaneous ({})", a),
                 Self::Unknown => String::from("Unknown"),
             }
@@ -356,7 +367,7 @@ fn print_stats(
             stats.spent_last_month / 30.0
         );
         for (category, spent) in stats.spent_last_month_by_category.iter() {
-            println!("  {:13}: {:.2}", category.to_string(), spent);
+            println!("  {:15}: {:.2}", category.to_string(), spent);
         }
         println!("---");
     }
@@ -368,7 +379,7 @@ fn print_stats(
             stats.spent_last_year / 365.0
         );
         for (category, spent) in stats.spent_last_year_by_category.iter() {
-            println!("  {:13}: {:.2}", category.to_string(), spent);
+            println!("  {:15}: {:.2}", category.to_string(), spent);
         }
         println!("---");
     }
@@ -382,7 +393,7 @@ fn print_stats(
         println!("  ---");
         for (category, spent, percentage) in stats.spent_current_year_by_category.iter() {
             println!(
-                "  {:13}: {:7.2} ({:5.2}%)",
+                "  {:15}: {:7.2} ({:5.2}%)",
                 category.to_string(),
                 spent,
                 percentage * 100.0
