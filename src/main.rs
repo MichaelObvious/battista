@@ -17,8 +17,7 @@ use plotters::{
     prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
     series::LineSeries,
     style::{
-        full_palette::{YELLOW_100, YELLOW_A100},
-        Color, IntoFont, RED, WHITE, YELLOW,
+        full_palette::AMBER, Color, IntoFont, RED, WHITE
     },
 };
 use strum::IntoEnumIterator;
@@ -560,7 +559,7 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
     chart
         .draw_series(LineSeries::new(
             pts.into_iter(),
-            plotters::style::full_palette::AMBER.stroke_width(10),
+            AMBER.stroke_width(10),
         ))
         .unwrap();
 
