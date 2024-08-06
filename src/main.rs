@@ -23,6 +23,7 @@ use strum_macros::EnumIter;
 
 #[derive(Clone, Debug, Default, EnumIter, PartialEq, Hash, Eq)]
 enum Category {
+    Charity,
     Grocery,
     Education,
     Entrateinment,
@@ -45,6 +46,7 @@ impl fmt::Display for Category {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", {
             match self {
+                Self::Charity => String::from("Charity"),
                 Self::Grocery => String::from("Grocery"),
                 Self::Education => String::from("Education"),
                 Self::Entrateinment => String::from("Entrateinment"),
