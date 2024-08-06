@@ -578,17 +578,16 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
             .unwrap();
     }
 
-    let values = old_monthly_values
-        .into_iter()
-        .map(|(a, b)| {
-            (
-                b,
-                days_in_month(NaiveDate::from_ymd_opt(a.0, a.1, 1).unwrap()) as f64,
-            )
-        })
-        .collect();
-
     let mut pts = if true {
+        let values = old_monthly_values
+            .into_iter()
+            .map(|(a, b)| {
+                (
+                    b,
+                    days_in_month(NaiveDate::from_ymd_opt(a.0, a.1, 1).unwrap()) as f64,
+                )
+            })
+            .collect();
         weighted_moving_average(values, 12)
     } else {
         moving_average(monthly_values, 12)
