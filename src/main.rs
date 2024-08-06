@@ -14,9 +14,8 @@ use std::{
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use plotters::{
     chart::ChartBuilder,
-    prelude::{BitMapBackend, IntoDrawingArea},
-    series::LineSeries,
-    style::{IntoFont, RED},
+    prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
+    style::{Color, IntoFont, RED, WHITE},
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -102,6 +101,14 @@ impl Iterator for DateRange {
         }
     }
 }
+
+// fn days_in_month(d: NaiveDate) -> i64 {
+//     let year = d.year_ce().1 as i32 * if d.year_ce().0 { 1 } else { -1 };
+//     let month = d.month0() + 1;
+//     (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
+//         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+//     .num_days()
+// }
 
 fn print_usage() {
     println!("USAGE: {} <path/to/file.csv>", env::args().next().unwrap());
@@ -417,8 +424,18 @@ fn print_stats(
 fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
     let today = Utc::now().date_naive();
     let mut monthly_spending = HashMap::<(i32, u32), f64>::new();
-    
+
     let mut max_value: f64 = 0.0;
+    let magic_factor = 1.1;
+    let first = entries.first().unwrap();
+    let last = entries.last().unwrap();
+    let start_year = first.date.year_ce().1 as i32 * if first.date.year_ce().0 { 1 } else { -1 };
+    let start_month = first.date.month0();
+    let end_year = last.date.year_ce().1 as i32 * if last.date.year_ce().0 { 1 } else { -1 };
+    let end_month = last.date.month0();
+
+    let num_months = end_year * 12 - start_year * 12 + end_month as i32 - start_month as i32;
+
     for e in entries.iter() {
         let year = e.date.year_ce().1 as i32 * if e.date.year_ce().0 { 1 } else { -1 };
         let month = e.date.month0() + 1;
@@ -436,48 +453,65 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         monthly_spending.insert((year, month), prev + value);
     }
 
-    let root = BitMapBackend::new(filepath, (960, 720)).into_drawing_area();
-    root.fill(&plotters::style::WHITE).unwrap();
-    let mut chart = ChartBuilder::on(&root)
-        .caption("Monthly spending", ("serif", 25).into_font())
-        .margin(5)
-        .x_label_area_size(30)
-        .y_label_area_size(30)
-        .build_cartesian_2d(
-            entries.first().unwrap().date.year_ce().1 as f32
-                ..entries.last().unwrap().date.year_ce().1 as f32 + 1.0,
-            0.0f32..(max_value as f32 * 1.125).round(),
-        )
-        .unwrap();
+    let mut monthly_values = monthly_spending.into_iter().collect::<Vec<_>>();
+    monthly_values
+        .sort_by(|a, b| (a.0 .0 * 13 + a.0 .1 as i32).cmp(&(b.0 .0 * 13 + b.0 .1 as i32)));
+    let monthly_values = monthly_values.iter().map(|x| x.1).collect::<Vec<_>>();
 
-    chart.configure_mesh().draw().unwrap();
-
-
-    let mut monthly_spending: Vec<_> = monthly_spending.into_iter().collect();
-    monthly_spending.sort_by(|a, b| {
-        (a.0 .0 as f64 + a.0 .1 as f64 / 13.0)
-            .partial_cmp(&(b.0 .0 as f64 + b.0 .1 as f64 / 13.0))
-            .unwrap()
+    let month_labels = (0..=num_months).map(|x| {
+        let n = x + start_month as i32;
+        let year = start_year + n / 12;
+        let month = n % 12 + 1;
+        format!("{:02}/{}", month, year)
     });
-    // monthly_spending.iter().map(|a|)
 
-    chart
-        .draw_series(LineSeries::new(
-            monthly_spending
-                .iter()
-                .map(|a| (a.0 .0 as f32 + (a.0 .1 - 1) as f32 / 12.0, a.1 as f32)),
-            &RED,
-        ))
+    let root = BitMapBackend::new(filepath, (960*2, 720*2)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
+
+    // Create a chart builder
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Monthly Spending", ("serif", 64).into_font())
+        .margin(50)
+        .x_label_area_size(50)
+        .y_label_area_size(75)
+        .build_cartesian_2d((0.0..((num_months+1) as f32)).step(1.0), 0.0..max_value * magic_factor)
         .unwrap();
-    // .label("y = x^2");
-    // .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
 
-    // chart
-    //     .configure_series_labels()
-    //     .background_style(&WHITE.mix(0.8))
-    //     .border_style(&BLACK)
-    //     .draw().unwrap();
+    // Configure the axes
+    chart
+        .configure_mesh()
+        .x_desc("Months")
+        .y_desc("Daily average")
+        .x_labels((num_months+1) as usize)
+        .y_labels(10)
+        .x_label_formatter(&|_| {
+            String::default()
+        })
+        .draw()
+        .unwrap();
 
+    chart.draw_series(monthly_values.iter().enumerate().map(|(month, &value)| {
+        Rectangle::new(
+            [(month as f32, 0.0), ((month + 1) as f32, value as f64)],
+            RED.mix((value/max_value).sqrt()).filled(),
+        )
+    })).unwrap();
+
+    let font = ("serif", 28.0).into_font();
+    let pixels_per_unit_x = chart.plotting_area().get_x_axis_pixel_range().len() as f32 / num_months as f32;
+    let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
+
+    for (i, label) in month_labels.into_iter().enumerate() {
+        let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
+        let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
+        println!("{}", offset_y);
+        chart.draw_series(std::iter::once(Text::new(
+            label,
+            (i as f32 + 0.5 - offset_x * 0.5, -20.0), // Positioning the label
+            font.clone(),
+        ))).unwrap();
+    }
+    
     root.present().unwrap();
 }
 
