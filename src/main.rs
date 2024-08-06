@@ -568,11 +568,11 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
 
     for (i, label) in month_value_labels.into_iter().enumerate() {
         let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
-        // let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
+        let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
         chart
             .draw_series(std::iter::once(Text::new(
                 label,
-                (i as f32 + 0.5 - offset_x * 0.5, monthly_values[i] / 2.0), // Positioning the label
+                (i as f32 + 0.5 - offset_x * 0.5, (monthly_values[i] + offset_y) / 2.0), // Positioning the label
                 font.clone(),
             )))
             .unwrap();
