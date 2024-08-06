@@ -499,12 +499,11 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
 
     let font = ("serif", 28.0).into_font();
     let pixels_per_unit_x = chart.plotting_area().get_x_axis_pixel_range().len() as f32 / num_months as f32;
-    let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
+    // let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
 
     for (i, label) in month_labels.into_iter().enumerate() {
         let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
-        let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
-        println!("{}", offset_y);
+        // let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
         chart.draw_series(std::iter::once(Text::new(
             label,
             (i as f32 + 0.5 - offset_x * 0.5, -20.0), // Positioning the label
