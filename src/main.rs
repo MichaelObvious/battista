@@ -16,9 +16,7 @@ use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
     series::LineSeries,
-    style::{
-        full_palette::AMBER, Color, IntoFont, RED, WHITE
-    },
+    style::{full_palette::AMBER, Color, FontStyle, IntoFont, RED, WHITE},
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -491,6 +489,8 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         format!("{:02}/{}", month, year)
     });
 
+    let month_value_labels = (0..=num_months).map(|x| format!("{:.2}", monthly_values[x as usize]));
+
     let root = BitMapBackend::new(filepath, (960 * 2, 720 * 2)).into_drawing_area();
     root.fill(&WHITE).unwrap();
 
@@ -533,7 +533,7 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
     let font = ("serif", 28.0).into_font();
     let pixels_per_unit_x =
         chart.plotting_area().get_x_axis_pixel_range().len() as f32 / num_months as f32;
-    // let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
+    let pixels_per_unit_y = chart.plotting_area().get_y_axis_pixel_range().len() as f64 / (max_value * magic_factor);
 
     for (i, label) in month_labels.into_iter().enumerate() {
         let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
@@ -547,6 +547,18 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
             .unwrap();
     }
 
+    for (i, label) in month_value_labels.into_iter().enumerate() {
+        let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
+        // let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
+        chart
+            .draw_series(std::iter::once(Text::new(
+                label,
+                (i as f32 + 0.5 - offset_x * 0.5, monthly_values[i] / 2.0), // Positioning the label
+                font.clone(),
+            )))
+            .unwrap();
+    }
+
     let mut pts = moving_average(monthly_values, 12)
         .iter()
         .enumerate()
@@ -554,14 +566,25 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         .collect::<Vec<_>>();
 
     pts.insert(0, (0.0, pts.first().unwrap().1));
-    pts.push(((num_months+1) as f32,  pts.last().unwrap().1));
+    pts.push(((num_months + 1) as f32, pts.last().unwrap().1));
 
     chart
-        .draw_series(LineSeries::new(
-            pts.into_iter(),
-            AMBER.stroke_width(10),
-        ))
+        .draw_series(LineSeries::new(pts.clone().into_iter(), AMBER.stroke_width(10)))
         .unwrap();
+
+    {
+        let value =  pts.last().unwrap().1;
+        let label = format!("Average: {:.2}", value);
+        let offset_x = (font.box_size(&label).unwrap().0 as f32) / pixels_per_unit_x;
+        let offset_y = (font.box_size(&label).unwrap().1 as f64) / pixels_per_unit_y;
+        chart
+            .draw_series(std::iter::once(Text::new(
+                label,
+                ((num_months as f32 + 1.0) - offset_x - 20.0/pixels_per_unit_x, value + offset_y*1.5), // Positioning the label
+                font.clone().style(FontStyle::Bold),
+            )))
+            .unwrap();
+    }
 
     root.present().unwrap();
 }
