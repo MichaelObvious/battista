@@ -400,12 +400,18 @@ fn print_stats(
             stats.spent_current_year, stats.spent_current_year_per_day
         );
         println!("  ---");
-        for (category, spent, percentage) in stats.spent_current_year_by_category.iter() {
+        let spent_by_cat = stats
+            .spent_current_year_by_category
+            .iter()
+            .map(|(a, b, c)| (a.to_string(), b, c));
+        let max_len = spent_by_cat.clone().map(|x| x.0.len()).max().unwrap();
+        for (category, spent, percentage) in spent_by_cat {
             println!(
-                "  {:15}: {:7.2} ({:5.2}%)",
-                category.to_string(),
+                "  {:<3$}: {:7.2} ({:5.2}%)",
+                category,
                 spent,
-                percentage * 100.0
+                percentage * 100.0,
+                max_len
             );
         }
         println!("  ---");
