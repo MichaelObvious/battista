@@ -15,7 +15,11 @@ use chrono::{Datelike, Duration, NaiveDate, Utc};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
-    style::{Color, IntoFont, RED, WHITE},
+    series::LineSeries,
+    style::{
+        full_palette::{YELLOW_100, YELLOW_A100},
+        Color, IntoFont, RED, WHITE, YELLOW,
+    },
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -100,6 +104,23 @@ impl Iterator for DateRange {
             None
         }
     }
+}
+
+fn moving_average(xs: Vec<f64>, window: isize) -> Vec<f64> {
+    let mut average = Vec::new();
+
+    for i in 0..xs.len() {
+        let mut a = 0.0;
+        let start = (i as isize - window + 1).max(0) as usize;
+        let n = (i - start + 1) as f64;
+        for j in start..=i {
+            a += xs[j];
+        }
+        a /= n;
+        average.push(a);
+    }
+    assert!(average.len() == xs.len());
+    return average;
 }
 
 // fn days_in_month(d: NaiveDate) -> i64 {
@@ -526,6 +547,22 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
             )))
             .unwrap();
     }
+
+    let mut pts = moving_average(monthly_values, 12)
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i as f32 + 0.5, *v))
+        .collect::<Vec<_>>();
+
+    pts.insert(0, (0.0, pts.first().unwrap().1));
+    pts.push(((num_months+1) as f32,  pts.last().unwrap().1));
+
+    chart
+        .draw_series(LineSeries::new(
+            pts.into_iter(),
+            plotters::style::full_palette::AMBER.stroke_width(10),
+        ))
+        .unwrap();
 
     root.present().unwrap();
 }
