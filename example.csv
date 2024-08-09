@@ -1,4 +1,4 @@
-Amount ;Date      ;Category    ;End Date  ;Payment Method ;Comments
- 10.55 ;5/8/2024  ;Grocery     ;5/8/2024  ;Debit Card     ;<Insert Supermarket>
-  4.99 ;3/8/2024  ;Restaurants ;3/8/2024  ;Cash           ;Snack
- 55.70 ;30/7/2024 ;Transport   ;29/8/2024 ;Cash           ;Monthly train subscription
+Amount ;Date      ;Category       ;End Date  ;Payment Method ;Comments
+ 10.55 ;5/8/2024  ;Grocery        ;5/8/2024  ;Debit Card     ;<Insert Supermarket>
+  4.99 ;3/8/2024  ;Restaurants    ;3/8/2024  ;Cash           ;Snack
+ 55.70 ;30/7/2024 ;Transportation ;29/8/2024 ;Cash           ;Monthly train subscription
