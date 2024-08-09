@@ -664,14 +664,12 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (cat, value) in yearly.by_category.iter() {
-            writeln!(
-                buf,
-                "      {} & {:.2} & {:.2}\\% \\\\",
-                cat,
-                value,
-                (value / yearly.total) * 100.0
-            )
-            .unwrap();
+            let percentage = (value / yearly.total) * 100.0;
+            if percentage > 100.0 - 1e-3 {
+                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", cat, value, 100).unwrap();
+            } else {
+                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", cat, value, percentage).unwrap();
+            }
             writeln!(buf, "      \\hline").unwrap();
         }
     }
@@ -694,14 +692,12 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (pm, value) in yearly.by_payment_method.iter() {
-            writeln!(
-                buf,
-                "      {} & {:.2} & {:.2}\\% \\\\",
-                pm,
-                value,
-                (value / yearly.total) * 100.0
-            )
-            .unwrap();
+            let percentage = (value / yearly.total) * 100.0;
+            if percentage > 100.0 - 1e-3 {
+                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", pm, value, 100).unwrap();
+            } else {
+                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", pm, value, percentage).unwrap();
+            }
             writeln!(buf, "      \\hline").unwrap();
         }
     }
@@ -750,14 +746,12 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (cat, value) in monthly.by_category.iter() {
-            writeln!(
-                buf,
-                "      {} & {:.2} & {:.2}\\% \\\\",
-                cat,
-                value,
-                (value / monthly.total) * 100.0
-            )
-            .unwrap();
+            let percentage = (value / monthly.total) * 100.0;
+            if percentage > 100.0 - 1e-3 {
+                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", cat, value, 100).unwrap();
+            } else {
+                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", cat, value, percentage).unwrap();
+            }
             writeln!(buf, "      \\hline").unwrap();
         }
     }
@@ -781,14 +775,12 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (pm, value) in monthly.by_payment_method.iter() {
-            writeln!(
-                buf,
-                "      {} & {:.2} & {:.2}\\% \\\\",
-                pm,
-                value,
-                (value / monthly.total) * 100.0
-            )
-            .unwrap();
+            let percentage = (value / monthly.total) * 100.0;
+            if percentage > 100.0 - 1e-3 {
+                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", pm, value, 100).unwrap();
+            } else {
+                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", pm, value, percentage).unwrap();
+            }
             writeln!(buf, "      \\hline").unwrap();
         }
     }
