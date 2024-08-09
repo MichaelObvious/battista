@@ -600,7 +600,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
     writeln!(buf, "      xmin=0").unwrap();
     writeln!(buf, "    ]").unwrap();
-    writeln!(buf, "\\addplot[xbar] coordinates {{").unwrap();
+    writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
     // let start_year = stats.monthly.first().unwrap().0 .0;
     // let start_month = stats.monthly.first().unwrap().0.1;
     for ((y, m), monthly) in stats.monthly.iter() {
@@ -609,7 +609,13 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     }
     writeln!(buf, "}};").unwrap();
 
-    writeln!(buf, "\\addplot[smooth, gray] coordinates {{").unwrap();
+    writeln!(buf, "\\addplot[smooth, black!67,").unwrap();
+    // writeln!(
+    //     buf,
+    //     "      every node near coord/.append style={{anchor=east,font=\\tiny}},"
+    // )
+    // .unwrap();
+    writeln!(buf, "] coordinates {{").unwrap();
     let values = stats.monthly.iter().map(|x| x.1.per_day).collect();
     for (value, (y, m)) in moving_average(values, 12)
         .into_iter()
