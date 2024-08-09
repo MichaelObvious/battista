@@ -5,6 +5,7 @@ use std::{
     fmt::{self, Debug},
     fs,
     hash::Hash,
+    io::Write,
     path::PathBuf,
     process::exit,
     vec,
@@ -393,7 +394,8 @@ fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
     for (k, v) in tsc.yearly.iter_mut() {
         let year_start = NaiveDate::from_ymd_opt(*k, 1, 1).unwrap();
         let period_start = year_start.max(start);
-        let period_end = (NaiveDate::from_ymd_opt(*k + 1, 1, 1).unwrap() - TimeDelta::days(1)).min(today + TimeDelta::days(1));
+        let period_end = (NaiveDate::from_ymd_opt(*k + 1, 1, 1).unwrap() - TimeDelta::days(1))
+            .min(today + TimeDelta::days(1));
         let days = days_in_year(year_start);
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {}", year_start, period_start, period_end, days, days2);
@@ -519,6 +521,220 @@ fn print_stats(stats: &StatsCollection) {
     );
     println!();
     println!("===============");
+}
+
+fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: String) {
+    let mut buf = Vec::new();
+    writeln!(buf, "\\documentclass[10pt, a4paper]{{article}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "\\usepackage[portrait]{{geometry}}").unwrap();
+    writeln!(buf, "\\usepackage{{longtable}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(
+        buf,
+        "\\title{{\\textbf{{Spending report from}} \\texttt{{{}}}}}",
+        original_path
+    )
+    .unwrap();
+    // writeln!(buf, "\\usepackage{{longtable}}").unwrap();
+    writeln!(
+        buf,
+        "\\author{{{} {}}}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION")
+    )
+    .unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "\\makeindex").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "\\begin{{document}}").unwrap();
+    writeln!(buf, "  \\maketitle").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "\\tableofcontents").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\vspace{{5ex}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\section{{Overview over last period}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{itemize}}").unwrap();
+    writeln!(buf, "    \\item \\textbf{{In the past 30 days}}: {:.2} spent ({:.2} in average per day).", stats.last_30_days.total, stats.last_30_days.per_day).unwrap();
+    writeln!(buf, "    \\item \\textbf{{In the past 365 days}}: {:.2} spent ({:.2} in average per day).", stats.last_365_days.total, stats.last_365_days.per_day).unwrap();
+    writeln!(buf, "  \\end{{itemize}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    writeln!(
+        buf,
+        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
+    )
+    .unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    for (year, yearly) in stats.yearly.iter() {
+        writeln!(
+            buf,
+            "      {} & {:.2} & {:.2}\\\\",
+            year, yearly.total, yearly.per_day
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{By Category}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    for (year, yearly) in stats.yearly.iter() {
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(
+            buf,
+            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
+            year
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        for (cat, value) in yearly.by_category.iter() {
+            writeln!(
+                buf,
+                "      {} & {:.2} & {:.2}\\% \\\\",
+                cat,
+                value,
+                (value / yearly.total) * 100.0
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+        }
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    for (year, yearly) in stats.yearly.iter() {
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(
+            buf,
+            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
+            year
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        for (pm, value) in yearly.by_payment_method.iter() {
+            writeln!(
+                buf,
+                "      {} & {:.2} & {:.2}\\% \\\\",
+                pm,
+                value,
+                (value / yearly.total) * 100.0
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+        }
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    writeln!(
+        buf,
+        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
+    )
+    .unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    writeln!(buf, "      \\hline").unwrap();
+    for ((y, m), monthly) in stats.monthly.iter() {
+        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        writeln!(
+            buf,
+            "      {} {} & {:.2} & {:.2}\\\\",
+            month_name, y, monthly.total, monthly.per_day
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{By Category}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    for ((y, m), monthly) in stats.monthly.iter() {
+        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(
+            buf,
+            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
+            month_name, y
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        for (cat, value) in monthly.by_category.iter() {
+            writeln!(
+                buf,
+                "      {} & {:.2} & {:.2}\\% \\\\",
+                cat,
+                value,
+                (value / monthly.total) * 100.0
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+        }
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{center}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    for ((y, m), monthly) in stats.monthly.iter() {
+        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(
+            buf,
+            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
+            month_name, y
+        )
+        .unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        writeln!(buf, "      \\hline").unwrap();
+        for (pm, value) in monthly.by_payment_method.iter() {
+            writeln!(
+                buf,
+                "      {} & {:.2} & {:.2}\\% \\\\",
+                pm,
+                value,
+                (value / monthly.total) * 100.0
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+        }
+    }
+    writeln!(buf, "    \\end{{longtable}}").unwrap();
+    writeln!(buf, "  \\end{{center}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "\\end{{document}}").unwrap();
+    let mut f = std::fs::File::create(file_path).unwrap();
+    f.write(buf.as_slice()).unwrap();
 }
 
 fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>, stats: &StatsCollection) {
@@ -697,11 +913,16 @@ fn main() {
     let stats = get_stats(&entries);
     print_stats(&stats);
 
-    let mut out_file_path = path.clone();
-    out_file_path.set_extension("png");
-    plot_monthly_usage(&out_file_path, &entries, &stats);
+    let mut out_tex_path = path.clone();
+    out_tex_path.set_extension("tex");
+    write_tex_stats(&out_tex_path, &stats, path.display().to_string());
+    println!("Detailed report saved in `{}`.", out_tex_path.display());
+
+    let mut out_graph_path = path.clone();
+    out_graph_path.set_extension("png");
+    plot_monthly_usage(&out_graph_path, &entries, &stats);
     println!(
         "Monthly usage chart saved in `{}`.",
-        out_file_path.display()
+        out_graph_path.display()
     );
 }

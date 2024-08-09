@@ -1,3 +1,9 @@
 /target
+*.aux
 *.csv
+*.idx
+*.log
+*.pdf
 *.png
+*.tex
+*.toc
