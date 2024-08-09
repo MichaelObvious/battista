@@ -523,17 +523,18 @@ fn print_stats(stats: &StatsCollection) {
     println!("===============");
 }
 
-fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: String) {
+fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: &PathBuf) {
     let mut buf = Vec::new();
     writeln!(buf, "\\documentclass[10pt, a4paper]{{article}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "\\usepackage[portrait]{{geometry}}").unwrap();
     writeln!(buf, "\\usepackage{{longtable}}").unwrap();
+    writeln!(buf, "\\usepackage{{pgfplots}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(
         buf,
         "\\title{{\\textbf{{Spending report from}} \\texttt{{{}}}}}",
-        original_path
+        original_path.display()
     )
     .unwrap();
     // writeln!(buf, "\\usepackage{{longtable}}").unwrap();
@@ -554,12 +555,74 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "  \\vspace{{5ex}}").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\section{{Overview over last period}}").unwrap();
+    writeln!(buf, "  \\section{{Overview}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{itemize}}").unwrap();
-    writeln!(buf, "    \\item \\textbf{{In the past 30 days}}: {:.2} spent ({:.2} in average per day).", stats.last_30_days.total, stats.last_30_days.per_day).unwrap();
-    writeln!(buf, "    \\item \\textbf{{In the past 365 days}}: {:.2} spent ({:.2} in average per day).", stats.last_365_days.total, stats.last_365_days.per_day).unwrap();
+    writeln!(
+        buf,
+        "    \\item \\textbf{{In the past 30 days}}: {:.2} spent ({:.2} in average per day).",
+        stats.last_30_days.total, stats.last_30_days.per_day
+    )
+    .unwrap();
+    writeln!(
+        buf,
+        "    \\item \\textbf{{In the past 365 days}}: {:.2} spent ({:.2} in average per day).",
+        stats.last_365_days.total, stats.last_365_days.per_day
+    )
+    .unwrap();
     writeln!(buf, "  \\end{{itemize}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
+    writeln!(buf, "    \\small").unwrap();
+    writeln!(buf, "    \\begin{{axis}}[").unwrap();
+    writeln!(
+        buf,
+        "      symbolic y coords={{{}}},",
+        stats
+            .monthly
+            .iter()
+            .map(|((y, m), _)| format!("{:02}/{}", m, y % 100))
+            .rev()
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .unwrap();
+    writeln!(buf, "      xbar,").unwrap();
+    writeln!(buf, "      ytick=data,").unwrap();
+    writeln!(buf, "      width=\\textwidth,").unwrap();
+    writeln!(buf, "      nodes near coords,").unwrap();
+    writeln!(
+        buf,
+        "      every node near coord/.append style={{anchor=west,font=\\tiny}},"
+    )
+    .unwrap();
+    writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
+    writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
+    writeln!(buf, "      xmin=0").unwrap();
+    writeln!(buf, "    ]").unwrap();
+    writeln!(buf, "\\addplot[xbar] coordinates {{").unwrap();
+    // let start_year = stats.monthly.first().unwrap().0 .0;
+    // let start_month = stats.monthly.first().unwrap().0.1;
+    for ((y, m), monthly) in stats.monthly.iter() {
+        // let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        writeln!(buf, "      ({},{:02}/{})", monthly.per_day, m, y % 100).unwrap();
+    }
+    writeln!(buf, "}};").unwrap();
+
+    writeln!(buf, "\\addplot[smooth, gray] coordinates {{").unwrap();
+    let values = stats.monthly.iter().map(|x| x.1.per_day).collect();
+    for (value, (y, m)) in moving_average(values, 12)
+        .into_iter()
+        .zip(stats.monthly.iter().map(|x| x.0))
+    {
+        // let idx = (y - start_year) * 12 + (m - start_month) as i32;
+        writeln!(buf, "      ({},{:02}/{})", value, m, y % 100).unwrap();
+    }
+    writeln!(buf, "}};").unwrap();
+    // writeln!(buf, "    \\centering").unwrap();
+    // writeln!(buf, "    \\includegraphics[width=\\textwidth]{{{}}}", image_path.display()).unwrap();
+    writeln!(buf, "  \\end{{axis}}").unwrap();
+    writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
     writeln!(buf).unwrap();
@@ -913,11 +976,6 @@ fn main() {
     let stats = get_stats(&entries);
     print_stats(&stats);
 
-    let mut out_tex_path = path.clone();
-    out_tex_path.set_extension("tex");
-    write_tex_stats(&out_tex_path, &stats, path.display().to_string());
-    println!("Detailed report saved in `{}`.", out_tex_path.display());
-
     let mut out_graph_path = path.clone();
     out_graph_path.set_extension("png");
     plot_monthly_usage(&out_graph_path, &entries, &stats);
@@ -925,4 +983,9 @@ fn main() {
         "Monthly usage chart saved in `{}`.",
         out_graph_path.display()
     );
+
+    let mut out_tex_path = path.clone();
+    out_tex_path.set_extension("tex");
+    write_tex_stats(&out_tex_path, &stats, &path);
+    println!("Detailed report saved in `{}`.", out_tex_path.display());
 }
