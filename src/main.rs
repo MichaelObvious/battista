@@ -5,13 +5,12 @@ use std::{
     fmt::{self, Debug},
     fs,
     hash::Hash,
-    mem,
     path::PathBuf,
     process::exit,
     vec,
 };
 
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate, TimeDelta, Utc};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
@@ -88,20 +87,20 @@ struct Entry {
     note: String,
 }
 
-struct DateRange(NaiveDate, NaiveDate);
+// struct DateRange(NaiveDate, NaiveDate);
 
-impl Iterator for DateRange {
-    type Item = NaiveDate;
+// impl Iterator for DateRange {
+//     type Item = NaiveDate;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.0 <= self.1 {
-            let next = self.0 + Duration::days(1);
-            Some(mem::replace(&mut self.0, next))
-        } else {
-            None
-        }
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.0 <= self.1 {
+//             let next = self.0 + Duration::days(1);
+//             Some(mem::replace(&mut self.0, next))
+//         } else {
+//             None
+//         }
+//     }
+// }
 
 fn moving_average(xs: Vec<f64>, window: isize) -> Vec<f64> {
     let mut average = Vec::new();
@@ -139,9 +138,17 @@ fn weighted_moving_average(xs: Vec<(f64, f64)>, window: isize) -> Vec<f64> {
 }
 
 fn days_in_month(d: NaiveDate) -> i64 {
-    let year = d.year_ce().1 as i32 * if d.year_ce().0 { 1 } else { -1 };
+    let year = year_as_i32(d.year_ce());
     let month = d.month0() + 1;
     (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
+        - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+    .num_days()
+}
+
+fn days_in_year(d: NaiveDate) -> i64 {
+    let year = year_as_i32(d.year_ce());
+    let month = d.month0() + 1;
+    (NaiveDate::from_ymd_opt(year + 1, month, 1).unwrap()
         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
     .num_days()
 }
@@ -246,228 +253,281 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
     return entries;
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug, Default)]
 struct Stats {
-    average_spending_per_day: Vec<(NaiveDate, f64)>,
-    spent_last_month: f64,
-    spent_last_month_by_category: Vec<(Category, f64)>,
-    spent_last_year: f64,
-    spent_last_year_by_category: Vec<(Category, f64)>,
-    spent_current_year: f64,
-    spent_current_year_by_category: Vec<(Category, f64, f64)>,
-    spent_current_year_by_payment_method: Vec<(String, f64)>,
-    spent_current_year_by_month: Vec<(u32, f64, f64)>,
-    spent_current_year_per_day: f64,
+    per_day: f64,
+    total: f64,
+    by_category: Vec<(Category, f64)>,
+    by_payment_method: Vec<(String, f64)>,
 }
 
-fn gather_stats(entries: &Vec<Entry>) -> Stats {
+#[derive(Debug, Default)]
+struct TempStats {
+    per_day: f64,
+    total: f64,
+    by_category: HashMap<Category, f64>,
+    by_payment_method: HashMap<String, f64>,
+}
+
+impl TempStats {
+    pub fn update(&mut self, e: &Entry) {
+        let value = calc_value(e.value);
+        self.total += value;
+        if !self.by_category.contains_key(&e.category) {
+            self.by_category.insert(e.category.clone(), 0.0);
+        }
+        *(self.by_category.get_mut(&e.category).unwrap()) += value;
+        if !self.by_payment_method.contains_key(&e.payment_method) {
+            self.by_payment_method.insert(e.payment_method.clone(), 0.0);
+        }
+        *(self.by_payment_method.get_mut(&e.payment_method).unwrap()) += value;
+    }
+
+    pub fn calc_per_day(&mut self, days: i64) {
+        let days = days as f64;
+        self.per_day = self.total / days;
+    }
+
+    pub fn into_stats(self) -> Stats {
+        let mut by_category = self.by_category.into_iter().collect::<Vec<_>>();
+        by_category.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
+        let mut by_payment_method = self.by_payment_method.into_iter().collect::<Vec<_>>();
+        by_payment_method.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
+        Stats {
+            per_day: self.per_day,
+            total: self.total,
+            by_category,
+            by_payment_method,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct TempStatsCollection {
+    yearly: HashMap<i32, TempStats>,         // year
+    monthly: HashMap<(i32, u32), TempStats>, // year, month
+    last_365_days: TempStats,
+    last_30_days: TempStats,
+}
+
+#[derive(Debug, Default)]
+struct StatsCollection {
+    yearly: Vec<(i32, Stats)>,         // year
+    monthly: Vec<((i32, u32), Stats)>, // year, month
+    last_365_days: Stats,
+    last_30_days: Stats,
+}
+
+impl TempStatsCollection {
+    pub fn into_stats_collection(self) -> StatsCollection {
+        let mut yearly = self
+            .yearly
+            .into_iter()
+            .map(|(a, b)| (a, b.into_stats()))
+            .collect::<Vec<_>>();
+        yearly.sort_by(|x, y| x.0.cmp(&y.0));
+        let mut monthly = self
+            .monthly
+            .into_iter()
+            .map(|(a, b)| (a, b.into_stats()))
+            .collect::<Vec<_>>();
+        monthly.sort_by(|x, y| (x.0 .0 * 12 + x.0 .1 as i32).cmp(&(y.0 .0 * 12 + y.0 .1 as i32)));
+        StatsCollection {
+            yearly: yearly,
+            monthly: monthly,
+            last_30_days: self.last_30_days.into_stats(),
+            last_365_days: self.last_365_days.into_stats(),
+        }
+    }
+}
+
+fn calc_value(value: (i32, u32)) -> f64 {
+    let cents = value.1 as f64;
+    value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil())
+}
+
+fn year_as_i32(year_ce: (bool, u32)) -> i32 {
+    if year_ce.0 {
+        year_ce.1 as i32
+    } else {
+        -1 * year_ce.1 as i32
+    }
+}
+
+fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
+    let mut tsc = TempStatsCollection::default();
     let today = Utc::now().date_naive();
-    let this_year = today.year_ce().1 as i32 * if today.year_ce().0 { 1 } else { -1 };
 
-    let mut days: HashMap<NaiveDate, f64> = DateRange(entries.first().unwrap().date, today)
-        .map(|x| (x, 0.0))
-        .collect();
-
-    let mut spent_last_month = 0.0;
-    let mut category_month_spent = HashMap::new();
-
-    let mut spent_last_year = 0.0;
-    let mut category_year_spent = HashMap::new();
-
-    let mut spent_current_year = 0.0;
-    let mut cur_year_month_spent = HashMap::new();
-    for i in 1..(today.month0() + 2) {
-        cur_year_month_spent.insert(i, 0.0);
-    }
-    let mut cur_year_category_spent = HashMap::new();
-    let mut cur_year_pm_spent = HashMap::new();
-
+    let mut start = today;
     for entry in entries.iter() {
-        let num_days = (entry.end_date - entry.date).num_days().max(1);
-        let cents = entry.value.1 as f64;
-        let value = entry.value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil());
-        let average_value = value / num_days as f64;
-        for d in DateRange(entry.date, entry.end_date.min(today)) {
-            *days.get_mut(&d).unwrap() += average_value;
+        let year = year_as_i32(entry.date.year_ce());
+        let month = entry.date.month0() + 1;
+        start = start.min(entry.date);
+
+        // Yearly
+        if !tsc.yearly.contains_key(&year) {
+            tsc.yearly.insert(year, TempStats::default());
+        }
+        tsc.yearly.get_mut(&year).unwrap().update(entry);
+
+        // Yearly
+        if !tsc.yearly.contains_key(&year) {
+            tsc.yearly.insert(year, TempStats::default());
+        }
+        // Monthly
+        let month_idx = (year, month);
+        if !tsc.monthly.contains_key(&month_idx) {
+            tsc.monthly.insert(month_idx, TempStats::default());
+        }
+        tsc.monthly.get_mut(&month_idx).unwrap().update(entry);
+
+        if (today - entry.date).num_days() <= 30 {
+            tsc.last_30_days.update(entry);
         }
 
-        if (entry.date - today).num_days() <= 30 {
-            spent_last_month += value;
-            let prev = category_month_spent.get(&entry.category).unwrap_or(&0.0);
-            category_month_spent.insert(&entry.category, prev + value);
-        }
-
-        if (entry.date - today).num_days() <= 365 {
-            spent_last_year += value;
-
-            let prev = category_year_spent.get(&entry.category).unwrap_or(&0.0);
-            category_year_spent.insert(&entry.category, prev + value);
-        }
-
-        if entry.date.year() == this_year {
-            spent_current_year += value;
-
-            let entry_month = entry.date.month0() + 1;
-            let prev = cur_year_month_spent.get(&entry_month).unwrap_or(&0.0);
-            cur_year_month_spent.insert(entry_month, prev + value);
-
-            let prev = cur_year_category_spent.get(&entry.category).unwrap_or(&0.0);
-            cur_year_category_spent.insert(&entry.category, prev + value);
-
-            let prev = cur_year_pm_spent.get(&entry.payment_method).unwrap_or(&0.0);
-            cur_year_pm_spent.insert(&entry.payment_method, prev + value);
+        if (today - entry.date).num_days() <= 365 {
+            tsc.last_365_days.update(entry);
         }
     }
 
-    let mut average_spending_per_day: Vec<_> = days
-        .iter()
-        .map(|a| (a.0.to_owned(), a.1.to_owned()))
-        .collect();
-    average_spending_per_day.sort_by(|a, b| a.0.cmp(&b.0));
+    for (k, v) in tsc.yearly.iter_mut() {
+        let year_start = NaiveDate::from_ymd_opt(*k, 1, 1).unwrap();
+        let period_start = year_start.max(start);
+        let period_end = (NaiveDate::from_ymd_opt(*k + 1, 1, 1).unwrap() - TimeDelta::days(1)).min(today + TimeDelta::days(1));
+        let days = days_in_year(year_start);
+        let days2 = (period_end - period_start).num_days();
+        // println!("{} {} {} {} {}", year_start, period_start, period_end, days, days2);
+        v.calc_per_day(days.min(days2));
+    }
 
-    let mut spent_last_month_by_category: Vec<_> = category_month_spent
-        .iter()
-        .map(|a| ((**a.0).clone(), a.1.to_owned()))
-        .collect();
-    spent_last_month_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
+    for (k, v) in tsc.monthly.iter_mut() {
+        let month_start = NaiveDate::from_ymd_opt(k.0, k.1, 1).unwrap();
 
-    let mut spent_last_year_by_category: Vec<_> = category_month_spent
-        .iter()
-        .map(|a| ((**a.0).clone(), a.1.to_owned()))
-        .collect();
-    spent_last_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
-
-    let spent_current_year_per_day = spent_current_year
-        / (today - NaiveDate::from_ymd_opt(this_year, 1, 1).unwrap() + Duration::days(1)).num_days()
-            as f64;
-
-    let mut spent_current_year_by_category: Vec<_> = cur_year_category_spent
-        .iter()
-        .map(|a| ((**a.0).clone(), a.1.to_owned()))
-        .map(|a| (a.0, a.1, a.1 / spent_current_year))
-        .collect();
-    spent_current_year_by_category.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
-
-    let mut spent_current_year_by_month: Vec<_> = cur_year_month_spent
-        .iter()
-        .map(|a| (a.0.to_owned(), a.1.to_owned()))
-        .map(|x| {
-            (
-                x.0,
-                x.1,
-                x.1 / (NaiveDate::from_ymd_opt(
-                    this_year + if x.0 == 12 { 1 } else { 0 },
-                    (x.0 % 12) + 1,
-                    1,
-                )
+        let month_end =
+            NaiveDate::from_ymd_opt(k.0 + if k.1 == 12 { 1 } else { 0 }, (k.1 % 12) + 1, 1)
                 .unwrap()
-                .min(today)
-                    - NaiveDate::from_ymd_opt(this_year, x.0, 1).unwrap())
-                .num_days() as f64,
-            )
-        })
-        .collect();
-    spent_current_year_by_month.sort_by(|a, b| a.0.cmp(&b.0));
+                - TimeDelta::days(1);
+        let period_start = month_start.max(start);
+        let period_end = (month_end + TimeDelta::days(1)).min(today + TimeDelta::days(1));
+        let days = days_in_month(month_start);
+        let days2 = (period_end - period_start).num_days();
+        // println!("{} {} {} {} {} {}", month_start, month_end, period_start, period_end, days, days2);
+        v.calc_per_day(days.min(days2));
+    }
 
-    let mut spent_current_year_by_payment_method: Vec<_> = cur_year_pm_spent
-        .iter()
-        .map(|a| ((**a.0).clone(), a.1.to_owned()))
-        .collect();
-    spent_current_year_by_payment_method.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().reverse());
+    tsc.last_30_days.calc_per_day(30);
+    tsc.last_365_days.calc_per_day(365);
 
-    return Stats {
-        average_spending_per_day,
-        spent_last_month,
-        spent_last_month_by_category,
-        spent_last_year,
-        spent_last_year_by_category,
-        spent_current_year,
-        spent_current_year_by_category,
-        spent_current_year_by_payment_method,
-        spent_current_year_by_month,
-        spent_current_year_per_day,
-    };
+    return tsc.into_stats_collection();
 }
 
-fn print_stats(
-    stats: &Stats,
-    last_30_days: bool,
-    last_month: bool,
-    last_year: bool,
-    current_year: bool,
-) {
-    println!("---");
-    if last_30_days {
-        let to_skip = (stats.average_spending_per_day.len() as isize - 30).max(0);
-        for (date, spent) in stats.average_spending_per_day.iter().skip(to_skip as usize) {
-            println!("{}: {:.2}", date.format("%d/%m/%Y"), spent);
-        }
-        println!("---");
+fn print_stats(stats: &StatsCollection) {
+    let today = Utc::now().date_naive();
+
+    println!("SPENDING REPORT");
+    println!("===============");
+
+    let mut this_year = None;
+    for (year, yearly) in stats.yearly.iter() {
+        if *year == year_as_i32(today.year_ce()) {
+            this_year = Some(yearly)
+        };
+        println!(
+            "  - {}: {:.2} ({:.2} per day)",
+            year, yearly.total, yearly.per_day
+        );
     }
 
-    if last_month {
-        println!(
-            "Spent last month: {:.2} ({:.2} per day)",
-            stats.spent_last_month,
-            stats.spent_last_month / 30.0
-        );
-        for (category, spent) in stats.spent_last_month_by_category.iter() {
-            println!("  {:15}: {:.2}", category.to_string(), spent);
-        }
-        println!("---");
-    }
-
-    if last_year {
-        println!(
-            "Spent last year: {:.2} ({:.2} per day)",
-            stats.spent_last_year,
-            stats.spent_last_year / 365.0
-        );
-        for (category, spent) in stats.spent_last_year_by_category.iter() {
-            println!("  {:15}: {:.2}", category.to_string(), spent);
-        }
-        println!("---");
-    }
-
-    if current_year {
-        println!("Spent current year");
-        println!(
-            "  {:.2} ({:.2} per day)",
-            stats.spent_current_year, stats.spent_current_year_per_day
-        );
-        println!("  ---");
-        let spent_by_cat = stats
-            .spent_current_year_by_category
+    if let Some(this_year) = this_year {
+        println!("    - Categories:");
+        let max_len = this_year
+            .by_category
             .iter()
-            .map(|(a, b, c)| (a.to_string(), b, c));
-        let max_len = spent_by_cat.clone().map(|x| x.0.len()).max().unwrap();
-        for (category, spent, percentage) in spent_by_cat {
+            .map(|x| x.0.to_string().len())
+            .max()
+            .unwrap_or_default();
+        for (c, v) in this_year.by_category.iter() {
+            let percentage = (v / this_year.total) * 100.0;
             println!(
-                "  {:<3$}: {:7.2} ({:5.2}%)",
-                category,
-                spent,
-                percentage * 100.0,
+                "       - {:<3$}: {:7.2} ({:5.2}%)",
+                c.to_string(),
+                v,
+                percentage,
                 max_len
             );
         }
-        println!("  ---");
-        for (pm, spent) in stats.spent_current_year_by_payment_method.iter() {
-            println!("  {:9}: {:.2}", pm, spent);
+
+        println!("    - Payment methods:");
+        let max_len = this_year
+            .by_payment_method
+            .iter()
+            .map(|x| x.0.len())
+            .max()
+            .unwrap_or_default();
+        for (pm, v) in this_year.by_payment_method.iter() {
+            let percentage = (v / this_year.total) * 100.0;
+            println!(
+                "       - {:<3$}: {:7.2} ({:5.2}%)",
+                pm, v, percentage, max_len
+            );
         }
-        println!("  ---");
-        for (month, spent, per_day) in stats.spent_current_year_by_month.iter() {
-            let month = NaiveDate::from_ymd_opt(1, *month, 1).unwrap().format("%B");
-            println!("  {:9}: {:6.2} ({:5.2})", month, spent, per_day);
-        }
-        println!("---");
     }
+
+    let mut this_month = None;
+    println!("    - Months:");
+    for ((y, m), monthly) in stats.monthly.iter() {
+        if *y != year_as_i32(today.year_ce()) {
+            continue;
+        }
+        if *m == today.month0() + 1 {
+            this_month = Some(monthly)
+        }
+        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        println!(
+            "      - {:9}: {:7.2} ({:5.2} per day)",
+            month_name, monthly.total, monthly.per_day
+        );
+    }
+
+    if let Some(this_month) = this_month {
+        println!("        - Categories:");
+        let max_len = this_month
+            .by_category
+            .iter()
+            .map(|x| x.0.to_string().len())
+            .max()
+            .unwrap_or_default();
+        for (c, v) in this_month.by_category.iter() {
+            let percentage = (v / this_month.total) * 100.0;
+            println!(
+                "           - {:<3$}: {:7.2} ({:5.2}%)",
+                c.to_string(),
+                v,
+                percentage,
+                max_len
+            );
+        }
+    }
+    println!();
+    println!(
+        "Spent last 365 days: {:.2} ({:.2} per day)",
+        stats.last_365_days.total, stats.last_365_days.per_day
+    );
+    println!(
+        "Spent last 30 days: {:.2} ({:.2} per day)",
+        stats.last_30_days.total, stats.last_30_days.per_day
+    );
+    println!();
+    println!("===============");
 }
 
-fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
-    let today = Utc::now().date_naive();
-    let mut monthly_spending = HashMap::<(i32, u32), f64>::new();
-
-    let mut max_value: f64 = 0.0;
+fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>, stats: &StatsCollection) {
+    let max_value: f64 = stats
+        .monthly
+        .iter()
+        .map(|(_, b)| b.per_day)
+        .max_by(|a, b| a.partial_cmp(&b).unwrap())
+        .unwrap();
     let magic_factor = 1.1;
     let first = entries.first().unwrap();
     let last = entries.last().unwrap();
@@ -478,27 +538,11 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
 
     let num_months = end_year * 12 - start_year * 12 + end_month as i32 - start_month as i32;
 
-    for e in entries.iter() {
-        let year = e.date.year_ce().1 as i32 * if e.date.year_ce().0 { 1 } else { -1 };
-        let month = e.date.month0() + 1;
-        let cents = e.value.1 as f64;
-        let value = e.value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil());
-        let value = value
-            / (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1)
-                .unwrap()
-                .min(today)
-                - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
-            .num_days() as f64;
-
-        let prev = monthly_spending.get(&(year, month)).unwrap_or(&0.0);
-        max_value = max_value.max(prev + value);
-        monthly_spending.insert((year, month), prev + value);
-    }
-
-    let mut old_monthly_values = monthly_spending.into_iter().collect::<Vec<_>>();
-    old_monthly_values
-        .sort_by(|a, b| (a.0 .0 * 13 + a.0 .1 as i32).cmp(&(b.0 .0 * 13 + b.0 .1 as i32)));
-    let monthly_values = old_monthly_values.iter().map(|x| x.1).collect::<Vec<_>>();
+    let monthly_values = stats
+        .monthly
+        .iter()
+        .map(|x| x.1.per_day)
+        .collect::<Vec<_>>();
 
     let month_labels = (0..=num_months).map(|x| {
         let n = x + start_month as i32;
@@ -540,10 +584,10 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         .unwrap();
 
     chart
-        .draw_series(monthly_values.iter().enumerate().map(|(month, &value)| {
+        .draw_series(monthly_values.iter().enumerate().map(|(month, &v)| {
             Rectangle::new(
-                [(month as f32, 0.0), ((month + 1) as f32, value as f64)],
-                RED.mix((value / max_value).sqrt()).filled(),
+                [(month as f32, 0.0), ((month + 1) as f32, v as f64)],
+                RED.mix((v / max_value).sqrt()).filled(),
             )
         }))
         .unwrap();
@@ -572,25 +616,30 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>) {
         chart
             .draw_series(std::iter::once(Text::new(
                 label,
-                (i as f32 + 0.5 - offset_x * 0.5, (monthly_values[i] + offset_y) / 2.0), // Positioning the label
+                (
+                    i as f32 + 0.5 - offset_x * 0.5,
+                    (monthly_values[i] + offset_y) / 2.0,
+                ), // Positioning the label
                 font.clone(),
             )))
             .unwrap();
     }
 
     let mut pts = if true {
-        let values = old_monthly_values
-            .into_iter()
+        let values = stats
+            .monthly
+            .iter()
             .map(|(a, b)| {
                 (
-                    b,
+                    b.per_day,
                     days_in_month(NaiveDate::from_ymd_opt(a.0, a.1, 1).unwrap()) as f64,
                 )
             })
             .collect();
         weighted_moving_average(values, 12)
     } else {
-        moving_average(monthly_values, 12)
+        let values = stats.monthly.iter().map(|x| x.1.per_day).collect();
+        moving_average(values, 12)
     }
     .iter()
     .enumerate()
@@ -645,12 +694,12 @@ fn main() {
         return;
     }
 
-    let stats = gather_stats(&entries);
-    print_stats(&stats, false, false, false, true);
+    let stats = get_stats(&entries);
+    print_stats(&stats);
 
     let mut out_file_path = path.clone();
     out_file_path.set_extension("png");
-    plot_monthly_usage(&out_file_path, &entries);
+    plot_monthly_usage(&out_file_path, &entries, &stats);
     println!(
         "Monthly usage chart saved in `{}`.",
         out_file_path.display()
