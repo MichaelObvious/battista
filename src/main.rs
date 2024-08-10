@@ -188,6 +188,7 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
         for (field_idx, field) in fields.enumerate() {
             match field_idx {
                 0 => {
+                    let negative = field.trim().starts_with('-');
                     let mut parts = field.split('.');
                     let units = parts.next().unwrap().trim().parse::<i32>().unwrap();
                     let cents = parts
@@ -205,7 +206,12 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                         );
                         exit(1);
                     }
-                    entry.value = units as i64 * 100 + cents as i64;
+                    let cents = if units < 0 || negative {
+                        -(cents as i64)
+                    } else {
+                        cents as i64
+                    };
+                    entry.value = units as i64 * 100 + cents;
                 }
                 1 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
