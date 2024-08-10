@@ -80,7 +80,7 @@ impl From<&str> for Category {
 
 #[derive(Debug, Default)]
 struct Entry {
-    value: (i32, u32), // units and cents
+    value: i64, // units and cents
     date: NaiveDate,
     category: Category,
     end_date: NaiveDate,
@@ -196,7 +196,16 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                         .trim()
                         .parse::<u32>()
                         .unwrap_or(0);
-                    entry.value = (units, cents);
+                    if cents >= 100 {
+                        eprintln!(
+                            "[ERROR] Could not parse amount `{}` in {}:{} (cents seem to have too many digits).",
+                            field.trim(),
+                            filepath.display(),
+                            line_idx + 2
+                        );
+                        exit(1);
+                    }
+                    entry.value = units as i64 * 100 + cents as i64;
                 }
                 1 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
@@ -257,36 +266,36 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
 #[derive(Debug, Default)]
 struct Stats {
     per_day: f64,
-    total: f64,
-    by_category: Vec<(Category, f64)>,
-    by_payment_method: Vec<(String, f64)>,
+    total: i64,
+    by_category: Vec<(Category, i64)>,
+    by_payment_method: Vec<(String, i64)>,
 }
 
 #[derive(Debug, Default)]
 struct TempStats {
     per_day: f64,
-    total: f64,
-    by_category: HashMap<Category, f64>,
-    by_payment_method: HashMap<String, f64>,
+    total: i64,
+    by_category: HashMap<Category, i64>,
+    by_payment_method: HashMap<String, i64>,
 }
 
 impl TempStats {
     pub fn update(&mut self, e: &Entry) {
-        let value = calc_value(e.value);
+        let value = e.value;
         self.total += value;
         if !self.by_category.contains_key(&e.category) {
-            self.by_category.insert(e.category.clone(), 0.0);
+            self.by_category.insert(e.category.clone(), 0);
         }
         *(self.by_category.get_mut(&e.category).unwrap()) += value;
         if !self.by_payment_method.contains_key(&e.payment_method) {
-            self.by_payment_method.insert(e.payment_method.clone(), 0.0);
+            self.by_payment_method.insert(e.payment_method.clone(), 0);
         }
         *(self.by_payment_method.get_mut(&e.payment_method).unwrap()) += value;
     }
 
     pub fn calc_per_day(&mut self, days: i64) {
         let days = days as f64;
-        self.per_day = self.total / days;
+        self.per_day = self.get_total() / days;
     }
 
     pub fn into_stats(self) -> Stats {
@@ -300,6 +309,16 @@ impl TempStats {
             by_category,
             by_payment_method,
         }
+    }
+
+    fn get_total(&self) -> f64 {
+        self.total as f64 / 100.0
+    }
+}
+
+impl Stats {
+    fn get_total(&self) -> f64 {
+        self.total as f64 / 100.0
     }
 }
 
@@ -340,11 +359,6 @@ impl TempStatsCollection {
             last_365_days: self.last_365_days.into_stats(),
         }
     }
-}
-
-fn calc_value(value: (i32, u32)) -> f64 {
-    let cents = value.1 as f64;
-    value.0 as f64 + cents / 10.0_f64.powf((cents + 1.0).log10().ceil())
 }
 
 fn year_as_i32(year_ce: (bool, u32)) -> i32 {
@@ -436,7 +450,9 @@ fn print_stats(stats: &StatsCollection) {
         };
         println!(
             "  - {}: {:.2} ({:.2} per day)",
-            year, yearly.total, yearly.per_day
+            year,
+            yearly.get_total(),
+            yearly.per_day
         );
     }
 
@@ -449,11 +465,11 @@ fn print_stats(stats: &StatsCollection) {
             .max()
             .unwrap_or_default();
         for (c, v) in this_year.by_category.iter() {
-            let percentage = (v / this_year.total) * 100.0;
+            let percentage = (*v as f64 / this_year.total as f64) * 100.0;
             println!(
                 "       - {:<3$}: {:7.2} ({:5.2}%)",
                 c.to_string(),
-                v,
+                *v as f64 / 100.0,
                 percentage,
                 max_len
             );
@@ -467,10 +483,13 @@ fn print_stats(stats: &StatsCollection) {
             .max()
             .unwrap_or_default();
         for (pm, v) in this_year.by_payment_method.iter() {
-            let percentage = (v / this_year.total) * 100.0;
+            let percentage = (*v as f64 / this_year.total as f64) * 100.0;
             println!(
                 "       - {:<3$}: {:7.2} ({:5.2}%)",
-                pm, v, percentage, max_len
+                pm,
+                *v as f64 / 100.0,
+                percentage,
+                max_len
             );
         }
     }
@@ -487,7 +506,9 @@ fn print_stats(stats: &StatsCollection) {
         let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
         println!(
             "      - {:9}: {:7.2} ({:5.2} per day)",
-            month_name, monthly.total, monthly.per_day
+            month_name,
+            monthly.get_total(),
+            monthly.per_day
         );
     }
 
@@ -500,11 +521,11 @@ fn print_stats(stats: &StatsCollection) {
             .max()
             .unwrap_or_default();
         for (c, v) in this_month.by_category.iter() {
-            let percentage = (v / this_month.total) * 100.0;
+            let percentage = (*v as f64 / this_month.total as f64) * 100.0;
             println!(
                 "           - {:<3$}: {:7.2} ({:5.2}%)",
                 c.to_string(),
-                v,
+                *v as f64 / 100.0,
                 percentage,
                 max_len
             );
@@ -513,11 +534,13 @@ fn print_stats(stats: &StatsCollection) {
     println!();
     println!(
         "Spent last 365 days: {:.2} ({:.2} per day)",
-        stats.last_365_days.total, stats.last_365_days.per_day
+        stats.last_365_days.get_total(),
+        stats.last_365_days.per_day
     );
     println!(
         "Spent last 30 days: {:.2} ({:.2} per day)",
-        stats.last_30_days.total, stats.last_30_days.per_day
+        stats.last_30_days.get_total(),
+        stats.last_30_days.per_day
     );
     println!();
     println!("===============");
@@ -561,13 +584,15 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(
         buf,
         "    \\item \\textbf{{In the past 30 days}}: {:.2} spent ({:.2} in average per day).",
-        stats.last_30_days.total, stats.last_30_days.per_day
+        stats.last_30_days.get_total(),
+        stats.last_30_days.per_day
     )
     .unwrap();
     writeln!(
         buf,
         "    \\item \\textbf{{In the past 365 days}}: {:.2} spent ({:.2} in average per day).",
-        stats.last_365_days.total, stats.last_365_days.per_day
+        stats.last_365_days.get_total(),
+        stats.last_365_days.per_day
     )
     .unwrap();
     writeln!(buf, "  \\end{{itemize}}").unwrap();
@@ -646,7 +671,9 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(
             buf,
             "      {} & {:.2} & {:.2}\\\\",
-            year, yearly.total, yearly.per_day
+            year,
+            yearly.get_total(),
+            yearly.per_day
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
@@ -670,11 +697,25 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (cat, value) in yearly.by_category.iter() {
-            let percentage = (value / yearly.total) * 100.0;
+            let percentage = (*value as f64 / yearly.total as f64) * 100.0;
             if percentage > 100.0 - 1e-3 {
-                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", cat, value, 100).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {}\\% \\\\",
+                    cat,
+                    *value as f64 / 100.0,
+                    100
+                )
+                .unwrap();
             } else {
-                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", cat, value, percentage).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {:.2}\\% \\\\",
+                    cat,
+                    *value as f64 / 100.0,
+                    percentage
+                )
+                .unwrap();
             }
             writeln!(buf, "      \\hline").unwrap();
         }
@@ -698,11 +739,25 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (pm, value) in yearly.by_payment_method.iter() {
-            let percentage = (value / yearly.total) * 100.0;
+            let percentage = (*value as f64 / yearly.total as f64) * 100.0;
             if percentage > 100.0 - 1e-3 {
-                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", pm, value, 100).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {}\\% \\\\",
+                    pm,
+                    *value as f64 / 100.0,
+                    100
+                )
+                .unwrap();
             } else {
-                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", pm, value, percentage).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {:.2}\\% \\\\",
+                    pm,
+                    *value as f64 / 100.0,
+                    percentage
+                )
+                .unwrap();
             }
             writeln!(buf, "      \\hline").unwrap();
         }
@@ -727,7 +782,10 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(
             buf,
             "      {} {} & {:.2} & {:.2}\\\\",
-            month_name, y, monthly.total, monthly.per_day
+            month_name,
+            y,
+            monthly.get_total(),
+            monthly.per_day
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
@@ -752,11 +810,25 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (cat, value) in monthly.by_category.iter() {
-            let percentage = (value / monthly.total) * 100.0;
+            let percentage = (*value as f64 / monthly.total as f64) * 100.0;
             if percentage > 100.0 - 1e-3 {
-                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", cat, value, 100).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {}\\% \\\\",
+                    cat,
+                    *value as f64 / 100.0,
+                    100
+                )
+                .unwrap();
             } else {
-                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", cat, value, percentage).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {:.2}\\% \\\\",
+                    cat,
+                    *value as f64 / 100.0,
+                    percentage
+                )
+                .unwrap();
             }
             writeln!(buf, "      \\hline").unwrap();
         }
@@ -781,11 +853,25 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         for (pm, value) in monthly.by_payment_method.iter() {
-            let percentage = (value / monthly.total) * 100.0;
+            let percentage = (*value as f64 / monthly.total as f64) * 100.0;
             if percentage > 100.0 - 1e-3 {
-                writeln!(buf, "      {} & {:.2} & {}\\% \\\\", pm, value, 100).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {}\\% \\\\",
+                    pm,
+                    *value as f64 / 100.0,
+                    100
+                )
+                .unwrap();
             } else {
-                writeln!(buf, "      {} & {:.2} & {:.2}\\% \\\\", pm, value, percentage).unwrap();
+                writeln!(
+                    buf,
+                    "      {} & {:.2} & {:.2}\\% \\\\",
+                    pm,
+                    *value as f64 / 100.0,
+                    percentage
+                )
+                .unwrap();
             }
             writeln!(buf, "      \\hline").unwrap();
         }
