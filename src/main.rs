@@ -197,6 +197,7 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                         .trim()
                         .parse::<u32>()
                         .unwrap_or(0);
+
                     if cents >= 100 {
                         eprintln!(
                             "[ERROR] Could not parse amount `{}` in {}:{} (cents seem to have too many digits).",
@@ -210,7 +211,7 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                         -(cents as i64)
                     } else {
                         cents as i64
-                    };
+                    } * if cents < 10 { 10 } else { 1 };
                     entry.value = units as i64 * 100 + cents;
                 }
                 1 => {
