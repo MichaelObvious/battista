@@ -567,12 +567,17 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         original_path.display()
     )
     .unwrap();
-    // writeln!(buf, "\\usepackage{{longtable}}").unwrap();
     writeln!(
         buf,
         "\\author{{{} {}}}",
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION")
+    )
+    .unwrap();
+    writeln!(
+        buf,
+        "\\date{{{}}}",
+        Utc::now().date_naive().format("%B %d, %Y")
     )
     .unwrap();
     writeln!(buf).unwrap();
