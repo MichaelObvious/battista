@@ -276,6 +276,7 @@ struct Stats {
     total: i64,
     by_category: Vec<(Category, i64)>,
     by_payment_method: Vec<(String, i64)>,
+    transaction_count: u64,
 }
 
 #[derive(Debug, Default)]
@@ -284,6 +285,7 @@ struct TempStats {
     total: i64,
     by_category: HashMap<Category, i64>,
     by_payment_method: HashMap<String, i64>,
+    transaction_count: u64,
 }
 
 impl TempStats {
@@ -315,6 +317,7 @@ impl TempStats {
             total: self.total,
             by_category,
             by_payment_method,
+            transaction_count: self.transaction_count,
         }
     }
 
@@ -392,10 +395,6 @@ fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
         }
         tsc.yearly.get_mut(&year).unwrap().update(entry);
 
-        // Yearly
-        if !tsc.yearly.contains_key(&year) {
-            tsc.yearly.insert(year, TempStats::default());
-        }
         // Monthly
         let month_idx = (year, month);
         if !tsc.monthly.contains_key(&month_idx) {
