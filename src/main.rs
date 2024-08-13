@@ -79,7 +79,7 @@ impl From<&str> for Category {
 }
 
 #[derive(Debug, Default)]
-struct Entry {
+struct Transaction {
     value: i64, // units and cents
     date: NaiveDate,
     category: Category,
@@ -176,15 +176,15 @@ fn get_path() -> Option<PathBuf> {
     return path;
 }
 
-fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
+fn parse_file(filepath: &PathBuf) -> Vec<Transaction> {
     let content = fs::read_to_string(&filepath).unwrap_or_default();
     let lines = content.lines().skip(1);
 
-    let mut entries = vec![];
+    let mut transactions = vec![];
 
     for (line_idx, line) in lines.enumerate() {
         let fields = line.split(';');
-        let mut entry = Entry::default();
+        let mut transaction = Transaction::default();
         for (field_idx, field) in fields.enumerate() {
             match field_idx {
                 0 => {
@@ -212,11 +212,11 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                     } else {
                         cents as i64
                     } * if cents < 10 { 10 } else { 1 };
-                    entry.value = units as i64 * 100 + cents;
+                    transaction.value = units as i64 * 100 + cents;
                 }
                 1 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
-                        entry.date = date;
+                        transaction.date = date;
                     } else {
                         eprintln!(
                             "[ERROR] Could not parse date `{}` in {}:{}",
@@ -228,11 +228,11 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                     }
                 }
                 2 => {
-                    entry.category = Category::from(field.trim());
+                    transaction.category = Category::from(field.trim());
                 }
                 3 => {
                     if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
-                        entry.end_date = date;
+                        transaction.end_date = date;
                     } else {
                         eprintln!(
                             "[ERROR] Could not parse date `{}` in {}:{}",
@@ -244,16 +244,16 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
                     }
                 }
                 4 => {
-                    entry.payment_method = String::from(field.trim());
+                    transaction.payment_method = String::from(field.trim());
                 }
                 5 => {
-                    entry.note = String::from(field.trim());
+                    transaction.note = String::from(field.trim());
                 }
                 _ => {}
             }
         }
 
-        if Ordering::is_gt(entry.date.cmp(&entry.end_date)) {
+        if Ordering::is_gt(transaction.date.cmp(&transaction.end_date)) {
             eprintln!(
                 "[ERROR] Date is later than end date in {}:{}",
                 filepath.display(),
@@ -262,12 +262,12 @@ fn parse_file(filepath: &PathBuf) -> Vec<Entry> {
             exit(1);
         }
 
-        entries.push(entry);
+        transactions.push(transaction);
     }
 
-    entries.sort_by(|a, b| a.date.cmp(&b.date));
+    transactions.sort_by(|a, b| a.date.cmp(&b.date));
 
-    return entries;
+    return transactions;
 }
 
 #[derive(Debug, Default)]
@@ -276,6 +276,7 @@ struct Stats {
     total: i64,
     by_category: Vec<(Category, i64)>,
     by_payment_method: Vec<(String, i64)>,
+    average_transaction: f64,
     transaction_count: u64,
 }
 
@@ -285,11 +286,12 @@ struct TempStats {
     total: i64,
     by_category: HashMap<Category, i64>,
     by_payment_method: HashMap<String, i64>,
+    average_transaction: f64,
     transaction_count: u64,
 }
 
 impl TempStats {
-    pub fn update(&mut self, e: &Entry) {
+    pub fn update(&mut self, e: &Transaction) {
         let value = e.value;
         self.total += value;
         if !self.by_category.contains_key(&e.category) {
@@ -300,11 +302,13 @@ impl TempStats {
             self.by_payment_method.insert(e.payment_method.clone(), 0);
         }
         *(self.by_payment_method.get_mut(&e.payment_method).unwrap()) += value;
+        self.transaction_count += 1;
     }
 
-    pub fn calc_per_day(&mut self, days: i64) {
+    pub fn calc_averages(&mut self, days: i64) {
         let days = days as f64;
         self.per_day = self.get_total() / days;
+        self.average_transaction = self.get_total() / self.transaction_count as f64;
     }
 
     pub fn into_stats(self) -> Stats {
@@ -317,6 +321,7 @@ impl TempStats {
             total: self.total,
             by_category,
             by_payment_method,
+            average_transaction: self.average_transaction,
             transaction_count: self.transaction_count,
         }
     }
@@ -379,35 +384,35 @@ fn year_as_i32(year_ce: (bool, u32)) -> i32 {
     }
 }
 
-fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
+fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut tsc = TempStatsCollection::default();
     let today = Utc::now().date_naive();
 
     let mut start = today;
-    for entry in entries.iter() {
-        let year = year_as_i32(entry.date.year_ce());
-        let month = entry.date.month0() + 1;
-        start = start.min(entry.date);
+    for transaction in transactions.iter() {
+        let year = year_as_i32(transaction.date.year_ce());
+        let month = transaction.date.month0() + 1;
+        start = start.min(transaction.date);
 
         // Yearly
         if !tsc.yearly.contains_key(&year) {
             tsc.yearly.insert(year, TempStats::default());
         }
-        tsc.yearly.get_mut(&year).unwrap().update(entry);
+        tsc.yearly.get_mut(&year).unwrap().update(transaction);
 
         // Monthly
         let month_idx = (year, month);
         if !tsc.monthly.contains_key(&month_idx) {
             tsc.monthly.insert(month_idx, TempStats::default());
         }
-        tsc.monthly.get_mut(&month_idx).unwrap().update(entry);
+        tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
 
-        if (today - entry.date).num_days() <= 30 {
-            tsc.last_30_days.update(entry);
+        if (today - transaction.date).num_days() <= 30 {
+            tsc.last_30_days.update(transaction);
         }
 
-        if (today - entry.date).num_days() <= 365 {
-            tsc.last_365_days.update(entry);
+        if (today - transaction.date).num_days() <= 365 {
+            tsc.last_365_days.update(transaction);
         }
     }
 
@@ -419,7 +424,7 @@ fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
         let days = days_in_year(year_start);
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {}", year_start, period_start, period_end, days, days2);
-        v.calc_per_day(days.min(days2));
+        v.calc_averages(days.min(days2));
     }
 
     for (k, v) in tsc.monthly.iter_mut() {
@@ -434,11 +439,11 @@ fn get_stats(entries: &Vec<Entry>) -> StatsCollection {
         let days = days_in_month(month_start);
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {} {}", month_start, month_end, period_start, period_end, days, days2);
-        v.calc_per_day(days.min(days2));
+        v.calc_averages(days.min(days2));
     }
 
-    tsc.last_30_days.calc_per_day(30);
-    tsc.last_365_days.calc_per_day(365);
+    tsc.last_30_days.calc_averages(30);
+    tsc.last_365_days.calc_averages(365);
 
     return tsc.into_stats_collection();
 }
@@ -591,19 +596,38 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Overview}}").unwrap();
     writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
+    writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{itemize}}").unwrap();
     writeln!(
         buf,
-        "    \\item \\textbf{{In the past 30 days}}: {:.2} spent ({:.2} in average per day).",
+        "    \\item {:.2} spent ({:.2} in average per day);",
         stats.last_30_days.get_total(),
         stats.last_30_days.per_day
     )
     .unwrap();
     writeln!(
         buf,
-        "    \\item \\textbf{{In the past 365 days}}: {:.2} spent ({:.2} in average per day).",
+        "    \\item {} transactions (average transaction {:.2}).",
+        stats.last_30_days.transaction_count, stats.last_30_days.average_transaction
+    )
+    .unwrap();
+    writeln!(buf, "  \\end{{itemize}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 365 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{itemize}}").unwrap();
+    writeln!(
+        buf,
+        "    \\item {:.2} spent ({:.2} in average per day);",
         stats.last_365_days.get_total(),
         stats.last_365_days.per_day
+    )
+    .unwrap();
+    writeln!(
+        buf,
+        "    \\item {} transactions (average transaction {:.2}).",
+        stats.last_365_days.transaction_count, stats.last_365_days.average_transaction
     )
     .unwrap();
     writeln!(buf, "  \\end{{itemize}}").unwrap();
@@ -669,11 +693,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r r r}}").unwrap();
     writeln!(buf, "      \\hline").unwrap();
     writeln!(
         buf,
-        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
+        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Transaction Count}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Average Transaction}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "      \\hline").unwrap();
@@ -681,10 +705,12 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     for (year, yearly) in stats.yearly.iter() {
         writeln!(
             buf,
-            "      {} & {:.2} & {:.2}\\\\",
+            "      {} & {:.2} & {:.2} & {} & {:.2}\\\\",
             year,
             yearly.get_total(),
-            yearly.per_day
+            yearly.per_day,
+            yearly.transaction_count,
+            yearly.average_transaction
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
@@ -779,11 +805,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r r r}}").unwrap();
     writeln!(buf, "      \\hline").unwrap();
     writeln!(
         buf,
-        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
+        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Transaction Count}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Average Transaction}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "      \\hline").unwrap();
@@ -792,11 +818,13 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
         writeln!(
             buf,
-            "      {} {} & {:.2} & {:.2}\\\\",
+            "      {} {} & {:.2} & {:.2} & {} & {:.2}\\\\",
             month_name,
             y,
             monthly.get_total(),
-            monthly.per_day
+            monthly.per_day,
+            monthly.transaction_count,
+            monthly.average_transaction
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
@@ -895,7 +923,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     f.write(buf.as_slice()).unwrap();
 }
 
-fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>, stats: &StatsCollection) {
+fn plot_monthly_usage(
+    filepath: &PathBuf,
+    transactions: &Vec<Transaction>,
+    stats: &StatsCollection,
+) {
     let max_value: f64 = stats
         .monthly
         .iter()
@@ -903,8 +935,8 @@ fn plot_monthly_usage(filepath: &PathBuf, entries: &Vec<Entry>, stats: &StatsCol
         .max_by(|a, b| a.partial_cmp(&b).unwrap())
         .unwrap();
     let magic_factor = 1.1;
-    let first = entries.first().unwrap();
-    let last = entries.last().unwrap();
+    let first = transactions.first().unwrap();
+    let last = transactions.last().unwrap();
     let start_year = first.date.year_ce().1 as i32 * if first.date.year_ce().0 { 1 } else { -1 };
     let start_month = first.date.month0();
     let end_year = last.date.year_ce().1 as i32 * if last.date.year_ce().0 { 1 } else { -1 };
@@ -1061,19 +1093,19 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let path = path.unwrap();
-    let entries = parse_file(&path);
+    let transactions = parse_file(&path);
 
-    if entries.is_empty() {
-        println!("[INFO] Provided file has no entries. Exiting...");
+    if transactions.is_empty() {
+        println!("[INFO] Provided file has no transactions. Exiting...");
         return;
     }
 
-    let stats = get_stats(&entries);
+    let stats = get_stats(&transactions);
     print_stats(&stats);
 
     let mut out_graph_path = path.clone();
     out_graph_path.set_extension("png");
-    plot_monthly_usage(&out_graph_path, &entries, &stats);
+    plot_monthly_usage(&out_graph_path, &transactions, &stats);
     println!(
         "Monthly usage chart saved in `{}`.",
         out_graph_path.display()
