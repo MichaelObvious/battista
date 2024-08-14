@@ -693,11 +693,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r r r}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
     writeln!(buf, "      \\hline").unwrap();
     writeln!(
         buf,
-        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Transaction Count}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Average Transaction}}}}\\\\"
+        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "      \\hline").unwrap();
@@ -705,12 +705,10 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     for (year, yearly) in stats.yearly.iter() {
         writeln!(
             buf,
-            "      {} & {:.2} & {:.2} & {} & {:.2}\\\\",
+            "      {} & {:.2} & {:.2}\\\\",
             year,
             yearly.get_total(),
-            yearly.per_day,
-            yearly.transaction_count,
-            yearly.average_transaction
+            yearly.per_day
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
@@ -805,11 +803,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r r r}}").unwrap();
+    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
     writeln!(buf, "      \\hline").unwrap();
     writeln!(
         buf,
-        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Transaction Count}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Average Transaction}}}}\\\\"
+        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "      \\hline").unwrap();
@@ -818,13 +816,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
         writeln!(
             buf,
-            "      {} {} & {:.2} & {:.2} & {} & {:.2}\\\\",
+            "      {} {} & {:.2} & {:.2}\\\\",
             month_name,
             y,
             monthly.get_total(),
-            monthly.per_day,
-            monthly.transaction_count,
-            monthly.average_transaction
+            monthly.per_day
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
