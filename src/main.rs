@@ -450,7 +450,6 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
 
 fn print_stats(stats: &StatsCollection) {
     let today = Local::now().date_naive();
-    println!("TODAY is {:?}", today.to_string());
 
     println!("SPENDING REPORT");
     println!("===============");
