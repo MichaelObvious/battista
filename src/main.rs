@@ -11,7 +11,7 @@ use std::{
     vec,
 };
 
-use chrono::{Datelike, NaiveDate, TimeDelta, Utc};
+use chrono::{Datelike, Local, NaiveDate, TimeDelta};
 use plotters::{
     chart::ChartBuilder,
     prelude::{BitMapBackend, IntoDrawingArea, IntoLinspace, Rectangle, Text},
@@ -386,7 +386,7 @@ fn year_as_i32(year_ce: (bool, u32)) -> i32 {
 
 fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut tsc = TempStatsCollection::default();
-    let today = Utc::now().date_naive();
+    let today = Local::now().date_naive();
 
     let mut start = today;
     for transaction in transactions.iter() {
@@ -449,7 +449,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
 }
 
 fn print_stats(stats: &StatsCollection) {
-    let today = Utc::now().date_naive();
+    let today = Local::now().date_naive();
+    println!("TODAY is {:?}", today.to_string());
 
     println!("SPENDING REPORT");
     println!("===============");
@@ -581,7 +582,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(
         buf,
         "\\date{{{}}}",
-        Utc::now().date_naive().format("%B %d, %Y")
+        Local::now().date_naive().format("%B %d, %Y")
     )
     .unwrap();
     writeln!(buf).unwrap();
@@ -608,7 +609,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     .unwrap();
     writeln!(
         buf,
-        "    \\item {} transactions (average transaction {:.2}).",
+        "    \\item {} transactions ({:.2} in average per transaction).",
         stats.last_30_days.transaction_count, stats.last_30_days.average_transaction
     )
     .unwrap();
@@ -626,7 +627,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     .unwrap();
     writeln!(
         buf,
-        "    \\item {} transactions (average transaction {:.2}).",
+        "    \\item {} transactions ({:.2} in average per transaction).",
         stats.last_365_days.transaction_count, stats.last_365_days.average_transaction
     )
     .unwrap();
