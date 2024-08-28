@@ -3,6 +3,7 @@
 *.csv
 *.idx
 *.log
+*.out
 *.pdf
 *.png
 *.tex
