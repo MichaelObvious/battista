@@ -630,42 +630,6 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Overview}}").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{itemize}}").unwrap();
-    writeln!(
-        buf,
-        "    \\item {:.2} spent ({:.2} in average per day);",
-        stats.last_30_days.get_total(),
-        stats.last_30_days.per_day
-    )
-    .unwrap();
-    writeln!(
-        buf,
-        "    \\item {} transactions ({:.2} in average per transaction).",
-        stats.last_30_days.transaction_count, stats.last_30_days.average_transaction
-    )
-    .unwrap();
-    writeln!(buf, "  \\end{{itemize}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 365 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{itemize}}").unwrap();
-    writeln!(
-        buf,
-        "    \\item {:.2} spent ({:.2} in average per day);",
-        stats.last_365_days.get_total(),
-        stats.last_365_days.per_day
-    )
-    .unwrap();
-    writeln!(
-        buf,
-        "    \\item {} transactions ({:.2} in average per transaction).",
-        stats.last_365_days.transaction_count, stats.last_365_days.average_transaction
-    )
-    .unwrap();
-    writeln!(buf, "  \\end{{itemize}}").unwrap();
-    writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
     writeln!(buf, "    \\small").unwrap();
     writeln!(buf, "    \\begin{{axis}}[").unwrap();
@@ -723,6 +687,42 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     // writeln!(buf, "    \\includegraphics[width=\\textwidth]{{{}}}", image_path.display()).unwrap();
     writeln!(buf, "  \\end{{axis}}").unwrap();
     writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{itemize}}").unwrap();
+    writeln!(
+        buf,
+        "    \\item {:.2} spent ({:.2} in average per day);",
+        stats.last_30_days.get_total(),
+        stats.last_30_days.per_day
+    )
+    .unwrap();
+    writeln!(
+        buf,
+        "    \\item {} transactions ({:.2} in average per transaction).",
+        stats.last_30_days.transaction_count, stats.last_30_days.average_transaction
+    )
+    .unwrap();
+    writeln!(buf, "  \\end{{itemize}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 365 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{itemize}}").unwrap();
+    writeln!(
+        buf,
+        "    \\item {:.2} spent ({:.2} in average per day);",
+        stats.last_365_days.get_total(),
+        stats.last_365_days.per_day
+    )
+    .unwrap();
+    writeln!(
+        buf,
+        "    \\item {} transactions ({:.2} in average per transaction).",
+        stats.last_365_days.transaction_count, stats.last_365_days.average_transaction
+    )
+    .unwrap();
+    writeln!(buf, "  \\end{{itemize}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
     writeln!(buf).unwrap();
