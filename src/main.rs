@@ -52,6 +52,8 @@ impl fmt::Display for Category {
                 Self::Grocery => String::from("Grocery"),
                 Self::Education => String::from("Education"),
                 Self::Entrateinment => String::from("Entrateinment"),
+                Self::Fine => String::from("Fine"),
+                Self::Gift => String::from("Gift"),
                 Self::Healthcare => String::from("Healthcare"),
                 Self::Hobby => String::from("Hobby"),
                 Self::Rent => String::from("Rent"),
