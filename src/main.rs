@@ -634,6 +634,68 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Overview}}").unwrap();
     writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Years}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
+    writeln!(buf, "    \\small").unwrap();
+    writeln!(buf, "    \\begin{{axis}}[").unwrap();
+    writeln!(
+        buf,
+        "      symbolic y coords={{{}}},",
+        stats
+            .yearly
+            .iter()
+            .map(|(y, _)| format!("{}", y))
+            .rev()
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .unwrap();
+    writeln!(buf, "      xbar,").unwrap();
+    writeln!(buf, "      ytick=data,").unwrap();
+    writeln!(buf, "      width=\\textwidth,").unwrap();
+    writeln!(buf, "      nodes near coords,").unwrap();
+    writeln!(
+        buf,
+        "      every node near coord/.append style={{anchor=west,font=\\tiny}},"
+    )
+    .unwrap();
+    writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
+    writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
+    writeln!(buf, "      xmin=0").unwrap();
+    writeln!(buf, "    ]").unwrap();
+    writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
+    // let start_year = stats.monthly.first().unwrap().0 .0;
+    // let start_month = stats.monthly.first().unwrap().0.1;
+    for (y, yearly) in stats.yearly.iter() {
+        // let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        writeln!(buf, "      ({},{})", yearly.per_day, y).unwrap();
+    }
+    writeln!(buf, "}};").unwrap();
+
+    writeln!(buf, "\\addplot[smooth, black!67,").unwrap();
+    // writeln!(
+    //     buf,
+    //     "      every node near coord/.append style={{anchor=east,font=\\tiny}},"
+    // )
+    // .unwrap();
+    writeln!(buf, "] coordinates {{").unwrap();
+    let values = stats.yearly.iter().map(|x| x.1.per_day).collect();
+    for (value, y) in moving_average(values, 12)
+        .into_iter()
+        .zip(stats.yearly.iter().map(|x| x.0))
+    {
+        // let idx = (y - start_year) * 12 + (m - start_month) as i32;
+        writeln!(buf, "      ({},{})", value, y).unwrap();
+    }
+    writeln!(buf, "}};").unwrap();
+    // writeln!(buf, "    \\centering").unwrap();
+    // writeln!(buf, "    \\includegraphics[width=\\textwidth]{{{}}}", image_path.display()).unwrap();
+    writeln!(buf, "  \\end{{axis}}").unwrap();
+    writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Months}}").unwrap();
+    writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
     writeln!(buf, "    \\small").unwrap();
     writeln!(buf, "    \\begin{{axis}}[").unwrap();
