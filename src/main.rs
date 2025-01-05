@@ -647,8 +647,10 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     )
     .unwrap();
     writeln!(buf, "      xbar,").unwrap();
+    writeln!(buf, "      ybar,").unwrap();
     writeln!(buf, "      ytick=data,").unwrap();
     writeln!(buf, "      width=\\textwidth,").unwrap();
+    writeln!(buf, "      height={}ex,", 10*stats.yearly.len() + 6).unwrap();
     writeln!(buf, "      nodes near coords,").unwrap();
     writeln!(
         buf,
@@ -657,7 +659,8 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     .unwrap();
     writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
     writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
-    writeln!(buf, "      xmin=0").unwrap();
+    writeln!(buf, "      enlarge y limits={{0.2}},").unwrap();
+    writeln!(buf, "      xmin=0,").unwrap();
     writeln!(buf, "    ]").unwrap();
     writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
     // let start_year = stats.monthly.first().unwrap().0 .0;
@@ -707,8 +710,10 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     )
     .unwrap();
     writeln!(buf, "      xbar,").unwrap();
+    writeln!(buf, "      ybar,").unwrap();
     writeln!(buf, "      ytick=data,").unwrap();
     writeln!(buf, "      width=\\textwidth,").unwrap();
+    writeln!(buf, "      height={}ex,", 5*stats.monthly.len() + 6).unwrap();
     writeln!(buf, "      nodes near coords,").unwrap();
     writeln!(
         buf,
@@ -717,7 +722,8 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     .unwrap();
     writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
     writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
-    writeln!(buf, "      xmin=0").unwrap();
+    // writeln!(buf, "      enlarge y limits={{0.1}},").unwrap();
+    writeln!(buf, "      xmin=0,").unwrap();
     writeln!(buf, "    ]").unwrap();
     writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
     // let start_year = stats.monthly.first().unwrap().0 .0;
