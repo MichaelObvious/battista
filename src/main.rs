@@ -27,6 +27,8 @@ enum Category {
     Grocery,
     Education,
     Entrateinment,
+    Fine,
+    Gift,
     Healthcare,
     Hobby,
     Rent,

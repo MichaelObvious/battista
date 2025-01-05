@@ -10,4 +10,4 @@ $ cargo run --release <path/to/file.csv>
 
 Supply a `.csv` file like the [`example.csv`](./example.csv).
 
-Spending categories as of right now include: `Charity`, `Grocery`, `Education`, `Entrateinment`, `Healthcare`, `Hobby`, `Rent`, `Restaurants`, `Savings`, `Shopping`, `Taxes`, `Transportation`, `Travel`, `Utilities`, `Miscellaneous`, `Unknown`.
+Spending categories as of right now include: `Charity`, `Grocery`, `Education`, `Entrateinment`, `Fine`, `Gift`, `Healthcare`, `Hobby`, `Rent`, `Restaurants`, `Savings`, `Shopping`, `Taxes`, `Transportation`, `Travel`, `Utilities`, `Miscellaneous`, `Unknown`.
