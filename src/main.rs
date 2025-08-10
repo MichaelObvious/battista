@@ -649,7 +649,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "      ybar,").unwrap();
     writeln!(buf, "      ytick=data,").unwrap();
     writeln!(buf, "      width=\\textwidth,").unwrap();
-    writeln!(buf, "      height={}ex,", 10 * stats.yearly.len() + 6).unwrap();
+    writeln!(buf, "      height={}cm,", (0.75 * stats.yearly.len() as f64).max(5.0)).unwrap();
     writeln!(buf, "      nodes near coords,").unwrap();
     writeln!(
         buf,
@@ -657,8 +657,8 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     )
     .unwrap();
     writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
-    writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
-    writeln!(buf, "      enlarge y limits={{0.2}},").unwrap();
+    writeln!(buf, "      enlarge x limits={{abs={}cm,upper}},", 1.0).unwrap();
+    writeln!(buf, "      enlarge y limits={{abs={}cm}},", 0.50).unwrap();
     writeln!(buf, "      xmin=0,").unwrap();
     writeln!(buf, "    ]").unwrap();
     writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
@@ -712,7 +712,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "      ybar,").unwrap();
     writeln!(buf, "      ytick=data,").unwrap();
     writeln!(buf, "      width=\\textwidth,").unwrap();
-    writeln!(buf, "      height={}ex,", 5 * stats.monthly.len() + 6).unwrap();
+    writeln!(buf, "      height={}cm,", (0.75 * stats.monthly.len() as f64).max(5.0)).unwrap();
     writeln!(buf, "      nodes near coords,").unwrap();
     writeln!(
         buf,
@@ -720,8 +720,8 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     )
     .unwrap();
     writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
-    writeln!(buf, "      enlarge x limits={{value=0.2,upper}},").unwrap();
-    // writeln!(buf, "      enlarge y limits={{0.1}},").unwrap();
+    writeln!(buf, "      enlarge x limits={{abs={}cm,upper}},", 1.0).unwrap();
+    writeln!(buf, "      enlarge y limits={{abs={}cm}},", 0.50).unwrap();
     writeln!(buf, "      xmin=0,").unwrap();
     writeln!(buf, "    ]").unwrap();
     writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
