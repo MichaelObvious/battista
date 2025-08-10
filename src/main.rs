@@ -17,7 +17,9 @@ use strum_macros::EnumIter;
 
 #[derive(Clone, Debug, Default, EnumIter, PartialEq, Hash, Eq)]
 enum Category {
+    Books,
     Charity,
+    Clothing,
     Grocery,
     Education,
     Entrateinment,
@@ -25,10 +27,12 @@ enum Category {
     Gift,
     Healthcare,
     Hobby,
+    Insurance,
     Rent,
     Restaurants,
     Savings,
     Shopping,
+    Sport,
     Taxes,
     Transportation,
     Travel,
@@ -42,7 +46,9 @@ impl fmt::Display for Category {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", {
             match self {
+                Self::Books => String::from("Books"),
                 Self::Charity => String::from("Charity"),
+                Self::Clothing => String::from("Clothing"),
                 Self::Grocery => String::from("Grocery"),
                 Self::Education => String::from("Education"),
                 Self::Entrateinment => String::from("Entrateinment"),
@@ -50,10 +56,12 @@ impl fmt::Display for Category {
                 Self::Gift => String::from("Gift"),
                 Self::Healthcare => String::from("Healthcare"),
                 Self::Hobby => String::from("Hobby"),
+                Self::Insurance => String::from("Insurance"),
                 Self::Rent => String::from("Rent"),
                 Self::Restaurants => String::from("Restaurants"),
                 Self::Savings => String::from("Savings"),
                 Self::Shopping => String::from("Shopping"),
+                Self::Sport => String::from("Sport"),
                 Self::Taxes => String::from("Taxes"),
                 Self::Transportation => String::from("Transportation"),
                 Self::Travel => String::from("Travel"),

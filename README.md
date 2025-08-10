@@ -4,10 +4,19 @@ It keeps track of expenses and processes the data to provide some statistics.
 
 ## Usage
 
+### Without Installation
+
 ```sh
-$ cargo run --release <path/to/file.csv>
+cargo run --release <path/to/file.csv>
+```
+
+### With Installation
+
+```sh
+cargo install --path .
+battista <path/to/file.csv>
 ```
 
 Supply a `.csv` file like the [`example.csv`](./example.csv).
 
-Spending categories as of right now include: `Charity`, `Grocery`, `Education`, `Entrateinment`, `Fine`, `Gift`, `Healthcare`, `Hobby`, `Rent`, `Restaurants`, `Savings`, `Shopping`, `Taxes`, `Transportation`, `Travel`, `Utilities`, `Miscellaneous`, `Unknown`.
+Spending categories as of right now include: `Books`, `Charity`, `Clothing`, `Grocery`, `Education`, `Entrateinment`, `Fine`, `Gift`, `Healthcare`, `Hobby`, `Insurance`, `Rent`, `Restaurants`, `Savings`, `Shopping`, `Sport`, `Taxes`, `Transportation`, `Travel`, `Utilities`, `Miscellaneous`, `Unknown`.
