@@ -1,14 +1,5 @@
 use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    env,
-    fmt::{self, Debug},
-    fs,
-    hash::Hash,
-    io::Write,
-    path::PathBuf,
-    process::exit,
-    vec,
+    cmp::Ordering, collections::HashMap, env, fmt::{self, Debug}, fs, hash::Hash, io::Write, os::linux::raw::stat, path::PathBuf, process::exit, vec
 };
 
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
@@ -66,7 +57,10 @@ impl fmt::Display for Category {
                 Self::Transportation => String::from("Transportation"),
                 Self::Travel => String::from("Travel"),
                 Self::Utilities => String::from("Utilities"),
-                Self::Miscellaneous(a) => format!("Miscellaneous ({})", a),
+                Self::Miscellaneous(a) => match a.len() {
+                    0 => String::from("Miscellaneous"),
+                    _ => format!("Miscellaneous ({})", a),
+                },
                 Self::Unknown => String::from("Unknown"),
             }
         })
@@ -179,6 +173,7 @@ struct StatsCollection {
     monthly: Vec<((i32, u32), Stats)>, // year, month
     last_365_days: Stats,
     last_30_days: Stats,
+    last_7_days: Stats,
 }
 
 #[derive(Debug, Default)]
@@ -187,6 +182,7 @@ struct TempStatsCollection {
     monthly: HashMap<(i32, u32), TempStats>, // year, month
     last_365_days: TempStats,
     last_30_days: TempStats,
+    last_7_days: TempStats,
 }
 
 impl TempStatsCollection {
@@ -206,6 +202,7 @@ impl TempStatsCollection {
         StatsCollection {
             yearly: yearly,
             monthly: monthly,
+            last_7_days: self.last_7_days.into_stats(),
             last_30_days: self.last_30_days.into_stats(),
             last_365_days: self.last_365_days.into_stats(),
         }
@@ -295,11 +292,15 @@ fn print_usage() {
     println!("USAGE: {} <path/to/file.csv>", env::args().next().unwrap());
 }
 
-fn get_path() -> Option<PathBuf> {
+fn get_options() -> (Option<PathBuf>, bool) {
     let args = env::args().skip(1);
+    let mut full = false;
 
     let mut path = None;
     for arg in args {
+        if arg == "-f" || arg == "--full" {
+            full = true;
+        }
         let cur_path = PathBuf::from(arg);
         match cur_path.try_exists() {
             Ok(true) => {
@@ -310,7 +311,7 @@ fn get_path() -> Option<PathBuf> {
         }
     }
 
-    return path;
+    return (path, full);
 }
 
 fn parse_file(filepath: &PathBuf) -> Vec<Transaction> {
@@ -430,6 +431,10 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         }
         tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
 
+         if (today - transaction.date).num_days() <= 7 {
+            tsc.last_7_days.update(transaction);
+        }
+
         if (today - transaction.date).num_days() <= 30 {
             tsc.last_30_days.update(transaction);
         }
@@ -465,6 +470,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         v.calc_averages(days.min(days2));
     }
 
+
+    tsc.last_7_days.calc_averages(7);
     tsc.last_30_days.calc_averages(30);
     tsc.last_365_days.calc_averages(365);
 
@@ -576,11 +583,16 @@ fn print_stats(stats: &StatsCollection) {
         stats.last_30_days.get_total(),
         stats.last_30_days.per_day
     );
+    println!(
+        "Spent last 7 days: {:.2} ({:.2} per day)",
+        stats.last_7_days.get_total(),
+        stats.last_7_days.per_day
+    );
     println!();
     println!("===============");
 }
 
-fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: &PathBuf) {
+fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: &PathBuf, full_report: bool) {
     let today_date_formatted = Local::now().date_naive().format("%B %d, %Y");
 
     let mut buf = Vec::new();
@@ -632,7 +644,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "\\tableofcontents").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\vspace{{5ex}}").unwrap();
+    writeln!(buf, "\\clearpage").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\section{{Overview}}").unwrap();
     writeln!(buf).unwrap();
@@ -699,6 +711,8 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\end{{axis}}").unwrap();
     writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
     writeln!(buf).unwrap();
+    writeln!(buf, "\\clearpage").unwrap();
+    writeln!(buf).unwrap();
     writeln!(buf, "  \\subsection{{Months}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
@@ -762,24 +776,27 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "  \\end{{axis}}").unwrap();
     writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
+    writeln!(buf, "\\clearpage").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "  \\subsection{{Last 7 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
     writeln!(buf, "    \\hline").unwrap();
     writeln!(
         buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}\\\\"
+        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "    \\hline").unwrap();
     writeln!(buf, "    \\hline").unwrap();
-    for (cat, amount) in stats.last_30_days.by_category.iter().clone() {
+    for (cat, amount) in stats.last_7_days.by_category.iter().clone() {
         writeln!(
             buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}}\\\\",
+            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
             cat,
-            *amount as f64 / 3000.0,
+            *amount as f64 / 700.0,
             *amount as f64 / 100.0,
+            *amount as f64 / stats.last_7_days.get_total(),
         )
         .unwrap();
         writeln!(buf, "    \\hline").unwrap();
@@ -787,9 +804,45 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "    \\hline").unwrap();
     writeln!(
         buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
+        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
+        stats.last_7_days.per_day,
+        stats.last_7_days.get_total(),
+        100,
+    )
+    .unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\end{{longtable}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(
+        buf,
+        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
+    ).unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    for (cat, amount) in stats.last_30_days.by_category.iter().clone() {
+        writeln!(
+            buf,
+            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
+            cat,
+            *amount as f64 / 3000.0,
+            *amount as f64 / 100.0,
+            *amount as f64 / stats.last_30_days.get_total(),
+        )
+        .unwrap();
+        writeln!(buf, "    \\hline").unwrap();
+    }
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(
+        buf,
+        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
         stats.last_30_days.per_day,
         stats.last_30_days.get_total(),
+        100,
     )
     .unwrap();
     writeln!(buf, "    \\hline").unwrap();
@@ -798,11 +851,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf).unwrap();
     writeln!(buf, "  \\subsection{{Last 365 days}}").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r}}").unwrap();
+    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
     writeln!(buf, "    \\hline").unwrap();
     writeln!(
         buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}\\\\"
+        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
     )
     .unwrap();
     writeln!(buf, "    \\hline").unwrap();
@@ -810,10 +863,11 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     for (cat, amount) in stats.last_365_days.by_category.iter().clone() {
         writeln!(
             buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}}\\\\",
+            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
             cat,
             *amount as f64 / 36500.0,
             *amount as f64 / 100.0,
+            *amount as f64 / stats.last_365_days.get_total(),
         )
         .unwrap();
         writeln!(buf, "    \\hline").unwrap();
@@ -821,333 +875,344 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     writeln!(buf, "    \\hline").unwrap();
     writeln!(
         buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
+        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}& \\texttt{{{}\\%}}\\\\",
         stats.last_365_days.per_day,
         stats.last_365_days.get_total(),
+        100,
     )
     .unwrap();
     writeln!(buf, "    \\hline").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "  \\end{{longtable}}").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
+    writeln!(buf, "\\clearpage").unwrap();
     writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    writeln!(
-        buf,
-        "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
-    )
-    .unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    for (year, yearly) in stats.yearly.iter().rev() {
-        writeln!(
-            buf,
-            "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
-            year,
-            yearly.get_total(),
-            yearly.per_day
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-    }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{By Category}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    for (year, yearly) in stats.yearly.iter().rev() {
+    if full_report {
+        writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         writeln!(
             buf,
-            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-            year
+            "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
-        for (cat, value) in yearly.by_category.iter() {
-            let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-            if percentage > 100.0 - 1e-3 {
-                writeln!(
-                    buf,
-                    "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                    cat,
-                    *value as f64 / 100.0,
-                    100
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    buf,
-                    "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                    cat,
-                    *value as f64 / 100.0,
-                    percentage
-                )
-                .unwrap();
-            }
+        for (year, yearly) in stats.yearly.iter().rev() {
+            writeln!(
+                buf,
+                "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
+                year,
+                yearly.get_total(),
+                yearly.per_day
+            )
+            .unwrap();
             writeln!(buf, "      \\hline").unwrap();
         }
-    }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
-    // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
-    // writeln!(buf).unwrap();
-    // writeln!(buf, "  \\begin{{center}}").unwrap();
-    // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    // for (year, yearly) in stats.yearly.iter() {
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     writeln!(
-    //         buf,
-    //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-    //         year
-    //     )
-    //     .unwrap();
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     for (pm, value) in yearly.by_payment_method.iter() {
-    //         let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-    //         if percentage > 100.0 - 1e-3 {
-    //             writeln!(
-    //                 buf,
-    //                 "      {} & {:.2} & {}\\% \\\\",
-    //                 pm,
-    //                 *value as f64 / 100.0,
-    //                 100
-    //             )
-    //             .unwrap();
-    //         } else {
-    //             writeln!(
-    //                 buf,
-    //                 "      {} & {:.2} & {:.2}\\% \\\\",
-    //                 pm,
-    //                 *value as f64 / 100.0,
-    //                 percentage
-    //             )
-    //             .unwrap();
-    //         }
-    //         writeln!(buf, "      \\hline").unwrap();
-    //     }
-    // }
-    // writeln!(buf, "    \\end{{longtable}}").unwrap();
-    // writeln!(buf, "  \\end{{center}}").unwrap();
-    // writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{By Note}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    for (year, yearly) in stats.yearly.iter().rev() {
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "\\clearpage").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\subsection{{By Category}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        for (year, yearly) in stats.yearly.iter().rev() {
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(
+                buf,
+                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
+                year
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            for (cat, value) in yearly.by_category.iter() {
+                let percentage = (*value as f64 / yearly.total as f64) * 100.0;
+                if percentage > 100.0 - 1e-3 {
+                    writeln!(
+                        buf,
+                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
+                        cat,
+                        *value as f64 / 100.0,
+                        100
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        buf,
+                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
+                        cat,
+                        *value as f64 / 100.0,
+                        percentage
+                    )
+                    .unwrap();
+                }
+                writeln!(buf, "      \\hline").unwrap();
+            }
+        }
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
+        // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
+        // writeln!(buf).unwrap();
+        // writeln!(buf, "  \\begin{{center}}").unwrap();
+        // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        // for (year, yearly) in stats.yearly.iter() {
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     writeln!(
+        //         buf,
+        //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
+        //         year
+        //     )
+        //     .unwrap();
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     for (pm, value) in yearly.by_payment_method.iter() {
+        //         let percentage = (*value as f64 / yearly.total as f64) * 100.0;
+        //         if percentage > 100.0 - 1e-3 {
+        //             writeln!(
+        //                 buf,
+        //                 "      {} & {:.2} & {}\\% \\\\",
+        //                 pm,
+        //                 *value as f64 / 100.0,
+        //                 100
+        //             )
+        //             .unwrap();
+        //         } else {
+        //             writeln!(
+        //                 buf,
+        //                 "      {} & {:.2} & {:.2}\\% \\\\",
+        //                 pm,
+        //                 *value as f64 / 100.0,
+        //                 percentage
+        //             )
+        //             .unwrap();
+        //         }
+        //         writeln!(buf, "      \\hline").unwrap();
+        //     }
+        // }
+        // writeln!(buf, "    \\end{{longtable}}").unwrap();
+        // writeln!(buf, "  \\end{{center}}").unwrap();
+        // writeln!(buf).unwrap();
+        writeln!(buf, "  \\subsection{{By Note}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        for (year, yearly) in stats.yearly.iter().rev() {
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(
+                buf,
+                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
+                year
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            for (note, value) in yearly.by_note.iter() {
+                let note = escape_string_for_tex(note);
+                let percentage = (*value as f64 / yearly.total as f64) * 100.0;
+                if percentage > 100.0 - 1e-3 {
+                    writeln!(
+                        buf,
+                        "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
+                        note,
+                        *value as f64 / 100.0,
+                        100
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        buf,
+                        "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
+                        note,
+                        *value as f64 / 100.0,
+                        percentage
+                    )
+                    .unwrap();
+                }
+                writeln!(buf, "      \\hline").unwrap();
+            }
+        }
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
         writeln!(buf, "      \\hline").unwrap();
         writeln!(
             buf,
-            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-            year
+            "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
         )
         .unwrap();
         writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
         writeln!(buf, "      \\hline").unwrap();
-        for (note, value) in yearly.by_note.iter() {
-            let note = escape_string_for_tex(note);
-            let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-            if percentage > 100.0 - 1e-3 {
-                writeln!(
-                    buf,
-                    "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                    note,
-                    *value as f64 / 100.0,
-                    100
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    buf,
-                    "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                    note,
-                    *value as f64 / 100.0,
-                    percentage
-                )
-                .unwrap();
-            }
+        for ((y, m), monthly) in stats.monthly.iter().rev() {
+            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+            writeln!(
+                buf,
+                "      {} {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
+                month_name,
+                y,
+                monthly.get_total(),
+                monthly.per_day
+            )
+            .unwrap();
             writeln!(buf, "      \\hline").unwrap();
         }
-    }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    writeln!(
-        buf,
-        "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
-    )
-    .unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    writeln!(buf, "      \\hline").unwrap();
-    for ((y, m), monthly) in stats.monthly.iter().rev() {
-        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        writeln!(
-            buf,
-            "      {} {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
-            month_name,
-            y,
-            monthly.get_total(),
-            monthly.per_day
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-    }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{By Category}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    for ((y, m), monthly) in stats.monthly.iter().rev() {
-        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(
-            buf,
-            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-            month_name, y
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        for (cat, value) in monthly.by_category.iter() {
-            let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-            if percentage > 100.0 - 1e-3 {
-                writeln!(
-                    buf,
-                    "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                    cat,
-                    *value as f64 / 100.0,
-                    100
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    buf,
-                    "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                    cat,
-                    *value as f64 / 100.0,
-                    percentage
-                )
-                .unwrap();
-            }
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "\\clearpage").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\subsection{{By Category}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        for ((y, m), monthly) in stats.monthly.iter().rev() {
+            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
             writeln!(buf, "      \\hline").unwrap();
-        }
-    }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
-    // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
-    // writeln!(buf).unwrap();
-    // writeln!(buf, "  \\begin{{center}}").unwrap();
-    // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    // for ((y, m), monthly) in stats.monthly.iter() {
-    //     let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     writeln!(
-    //         buf,
-    //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-    //         month_name, y
-    //     )
-    //     .unwrap();
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-    //     writeln!(buf, "      \\hline").unwrap();
-    //     for (pm, value) in monthly.by_payment_method.iter() {
-    //         let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-    //         if percentage > 100.0 - 1e-3 {
-    //             writeln!(
-    //                 buf,
-    //                 "      {} & {:.2} & {}\\% \\\\",
-    //                 pm,
-    //                 *value as f64 / 100.0,
-    //                 100
-    //             )
-    //             .unwrap();
-    //         } else {
-    //             writeln!(
-    //                 buf,
-    //                 "      {} & {:.2} & {:.2}\\% \\\\",
-    //                 pm,
-    //                 *value as f64 / 100.0,
-    //                 percentage
-    //             )
-    //             .unwrap();
-    //         }
-    //         writeln!(buf, "      \\hline").unwrap();
-    //     }
-    // }
-    // writeln!(buf, "    \\end{{longtable}}").unwrap();
-    // writeln!(buf, "  \\end{{center}}").unwrap();
-    // writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{By Note}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{center}}").unwrap();
-    writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-    for ((y, m), monthly) in stats.monthly.iter().rev() {
-        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(
-            buf,
-            "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-            month_name, y
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        for (note, value) in monthly.by_note.iter() {
-            let note = escape_string_for_tex(note);
-            let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-            if percentage > 100.0 - 1e-3 {
-                writeln!(
-                    buf,
-                    "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                    note,
-                    *value as f64 / 100.0,
-                    100
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    buf,
-                    "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                    note,
-                    *value as f64 / 100.0,
-                    percentage
-                )
-                .unwrap();
-            }
+            writeln!(
+                buf,
+                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
+                month_name, y
+            )
+            .unwrap();
             writeln!(buf, "      \\hline").unwrap();
+            writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            for (cat, value) in monthly.by_category.iter() {
+                let percentage = (*value as f64 / monthly.total as f64) * 100.0;
+                if percentage > 100.0 - 1e-3 {
+                    writeln!(
+                        buf,
+                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
+                        cat,
+                        *value as f64 / 100.0,
+                        100
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        buf,
+                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
+                        cat,
+                        *value as f64 / 100.0,
+                        percentage
+                    )
+                    .unwrap();
+                }
+                writeln!(buf, "      \\hline").unwrap();
+            }
         }
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
+        // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
+        // writeln!(buf).unwrap();
+        // writeln!(buf, "  \\begin{{center}}").unwrap();
+        // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        // for ((y, m), monthly) in stats.monthly.iter() {
+        //     let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     writeln!(
+        //         buf,
+        //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
+        //         month_name, y
+        //     )
+        //     .unwrap();
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+        //     writeln!(buf, "      \\hline").unwrap();
+        //     for (pm, value) in monthly.by_payment_method.iter() {
+        //         let percentage = (*value as f64 / monthly.total as f64) * 100.0;
+        //         if percentage > 100.0 - 1e-3 {
+        //             writeln!(
+        //                 buf,
+        //                 "      {} & {:.2} & {}\\% \\\\",
+        //                 pm,
+        //                 *value as f64 / 100.0,
+        //                 100
+        //             )
+        //             .unwrap();
+        //         } else {
+        //             writeln!(
+        //                 buf,
+        //                 "      {} & {:.2} & {:.2}\\% \\\\",
+        //                 pm,
+        //                 *value as f64 / 100.0,
+        //                 percentage
+        //             )
+        //             .unwrap();
+        //         }
+        //         writeln!(buf, "      \\hline").unwrap();
+        //     }
+        // }
+        // writeln!(buf, "    \\end{{longtable}}").unwrap();
+        // writeln!(buf, "  \\end{{center}}").unwrap();
+        // writeln!(buf).unwrap();
+        writeln!(buf, "\\clearpage").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\subsection{{By Note}}").unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "  \\begin{{center}}").unwrap();
+        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
+        for ((y, m), monthly) in stats.monthly.iter().rev() {
+            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(
+                buf,
+                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
+                month_name, y
+            )
+            .unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
+            writeln!(buf, "      \\hline").unwrap();
+            for (note, value) in monthly.by_note.iter() {
+                let note = escape_string_for_tex(note);
+                let percentage = (*value as f64 / monthly.total as f64) * 100.0;
+                if percentage > 100.0 - 1e-3 {
+                    writeln!(
+                        buf,
+                        "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
+                        note,
+                        *value as f64 / 100.0,
+                        100
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        buf,
+                        "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
+                        note,
+                        *value as f64 / 100.0,
+                        percentage
+                    )
+                    .unwrap();
+                }
+                writeln!(buf, "      \\hline").unwrap();
+            }
+        }
+        writeln!(buf, "    \\end{{longtable}}").unwrap();
+        writeln!(buf, "  \\end{{center}}").unwrap();
+        writeln!(buf).unwrap();
     }
-    writeln!(buf, "    \\end{{longtable}}").unwrap();
-    writeln!(buf, "  \\end{{center}}").unwrap();
-    writeln!(buf).unwrap();
     writeln!(buf, "\\end{{document}}").unwrap();
     let mut f = std::fs::File::create(file_path).unwrap();
     f.write(buf.as_slice()).unwrap();
 }
 
 fn main() {
-    let path = get_path();
+    let (path, full_report) = get_options();
 
     if path.is_none() {
         eprintln!("[ERROR] No file provided.");
@@ -1169,6 +1234,6 @@ fn main() {
 
     let mut out_tex_path = path.clone();
     out_tex_path.set_extension("tex");
-    write_tex_stats(&out_tex_path, &stats, &path);
+    write_tex_stats(&out_tex_path, &stats, &path, full_report);
     println!("Detailed report saved in `{}`.", out_tex_path.display());
 }
