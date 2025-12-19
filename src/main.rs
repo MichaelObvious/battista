@@ -173,6 +173,7 @@ struct StatsCollection {
     monthly: Vec<((i32, u32), Stats)>, // year, month
     last_365_days: Stats,
     last_30_days: Stats,
+    last_14_days: Stats,
     last_7_days: Stats,
 }
 
@@ -182,6 +183,7 @@ struct TempStatsCollection {
     monthly: HashMap<(i32, u32), TempStats>, // year, month
     last_365_days: TempStats,
     last_30_days: TempStats,
+    last_14_days: TempStats,
     last_7_days: TempStats,
 }
 
@@ -203,6 +205,7 @@ impl TempStatsCollection {
             yearly: yearly,
             monthly: monthly,
             last_7_days: self.last_7_days.into_stats(),
+            last_14_days: self.last_14_days.into_stats(),
             last_30_days: self.last_30_days.into_stats(),
             last_365_days: self.last_365_days.into_stats(),
         }
@@ -431,8 +434,12 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         }
         tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
 
-         if (today - transaction.date).num_days() <= 7 {
+        if (today - transaction.date).num_days() <= 7 {
             tsc.last_7_days.update(transaction);
+        }
+
+        if (today - transaction.date).num_days() <= 14 {
+            tsc.last_14_days.update(transaction);
         }
 
         if (today - transaction.date).num_days() <= 30 {
@@ -472,6 +479,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
 
 
     tsc.last_7_days.calc_averages(7);
+    tsc.last_14_days.calc_averages(14);
     tsc.last_30_days.calc_averages(30);
     tsc.last_365_days.calc_averages(365);
 
@@ -584,6 +592,11 @@ fn print_stats(stats: &StatsCollection) {
         stats.last_30_days.per_day
     );
     println!(
+        "Spent last 14 days: {:.2} ({:.2} per day)",
+        stats.last_14_days.get_total(),
+        stats.last_14_days.per_day
+    );
+    println!(
         "Spent last 7 days: {:.2} ({:.2} per day)",
         stats.last_7_days.get_total(),
         stats.last_7_days.per_day
@@ -596,7 +609,7 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
     let today_date_formatted = Local::now().date_naive().format("%B %d, %Y");
 
     let mut buf = Vec::new();
-    writeln!(buf, "\\documentclass[10pt, a4paper]{{article}}").unwrap();
+    writeln!(buf, "\\documentclass[9pt, a4paper]{{article}}").unwrap();
     writeln!(buf).unwrap();
     writeln!(buf, "\\usepackage[english]{{babel}}").unwrap();
     writeln!(buf, "\\usepackage{{csquotes}}").unwrap();
@@ -807,6 +820,42 @@ fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: 
         "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
         stats.last_7_days.per_day,
         stats.last_7_days.get_total(),
+        100,
+    )
+    .unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\end{{longtable}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\subsection{{Last 14 days}}").unwrap();
+    writeln!(buf).unwrap();
+    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(
+        buf,
+        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
+    )
+    .unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(buf, "    \\hline").unwrap();
+    for (cat, amount) in stats.last_14_days.by_category.iter().clone() {
+        writeln!(
+            buf,
+            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
+            cat,
+            *amount as f64 / 1400.0,
+            *amount as f64 / 100.0,
+            *amount as f64 / stats.last_14_days.get_total(),
+        )
+        .unwrap();
+        writeln!(buf, "    \\hline").unwrap();
+    }
+    writeln!(buf, "    \\hline").unwrap();
+    writeln!(
+        buf,
+        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
+        stats.last_14_days.per_day,
+        stats.last_14_days.get_total(),
         100,
     )
     .unwrap();
