@@ -349,7 +349,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
                     tsc.last_n_days.insert(*i, TempStats::default());
                 }
                 tsc.last_n_days.get_mut(&i).unwrap().update(transaction);
-            }    
+            }
         }
     }
 
@@ -393,7 +393,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
 
 fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, n_days: u64) {
     let stats = stats.last_n_days.get(&n_days).unwrap();
-    writeln!(buf, "= Last {} days", n_days).unwrap();
+    writeln!(buf, "== Last {} days", n_days).unwrap();
         writeln!(buf, "").unwrap();
         writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Total*], [*Allowed spending*],").unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
@@ -401,7 +401,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
             write!(buf, "    [{}], align(right, [`{:.2}`]), align(right, [`{:.2}%`]),", category, amount, (*amount / stats.total) * 100.0).unwrap();
             let allowed_amount = if let Some(allowed_amount) = budget.per_category.get(category) {
                 let allowed = allowed_amount*n_days as f64 - *amount;
-                (format!("{:.2}", allowed), if allowed >= 0.0  { 
+                (format!("{:.2}", allowed), if allowed >= 0.0  {
                     if allowed / allowed_amount >= 0.25 {
                         "green"
                     } else {
@@ -413,7 +413,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
 
             } else {
                 (String::default(), "black")
-            }; 
+            };
             write!(buf, "align(right, text([`{}`], fill: {})), ", allowed_amount.0, allowed_amount.1).unwrap();
             writeln!(buf).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap()
@@ -421,7 +421,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         let allowed_amount =if budget.total > 0.0 {
                 let allowed = budget.total*n_days as f64 - stats.total;
-                (format!("{:.2}", allowed), if allowed >= 0.0  { 
+                (format!("{:.2}", allowed), if allowed >= 0.0  {
                     if allowed / budget.total >= 0.25 {
                         "green"
                     } else {
@@ -444,7 +444,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
             writeln!(buf, "#align(center, [*Biggest expenses*])").unwrap();
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
             for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > 50.0).zip(0..10) {
-                writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();    
+                writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();
             }
             writeln!(buf, "))").unwrap();
         }
@@ -454,26 +454,82 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     let today = Local::now().date_naive();
 
     let mut buf = Vec::new();
+    writeln!(buf, "#import \"@preview/cetz:0.3.2\"").unwrap();
+    writeln!(buf, "#import \"@preview/cetz-plot:0.1.1\"").unwrap();
+    writeln!(buf, "").unwrap();
     writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
     writeln!(buf, "#set text(12pt)").unwrap();
-    writeln!(buf, "#show heading: it => align(center, box(inset: (top: 2em, bottom: 1em),it))").unwrap();
+    writeln!(buf, "#show heading: it => align(center, box(inset: (top: 2em, bottom: 0.5em),it))").unwrap();
     writeln!(buf, "").unwrap();
+
     writeln!(buf, "#v(4em)").unwrap();
     writeln!(buf, "#align(center, text([*Spending report from* `{}`], 20pt))", original_path.display()).unwrap();
     writeln!(buf, "#align(center, link(\"https://www.github.com/MichaelObvious/battista\", [battista {}]))", env!("CARGO_PKG_VERSION")).unwrap();
     writeln!(buf, "#align(center, [{}])", today.format("%B %-d, %Y")).unwrap();
     writeln!(buf, "#v(5em)").unwrap();
+
     writeln!(buf, "").unwrap();
     writeln!(buf, "#outline()").unwrap();
     writeln!(buf, "").unwrap();
-    
 
-    let mut ns =stats.last_n_days.keys().collect::<Vec<_>>();
-    ns.sort();
-    for n_days in ns {
-        write_typ_table(&mut buf, stats, budget, *n_days);
+    writeln!(buf, "= Monthly Budget").unwrap();
+    let mut budget_categories = budget.per_category.keys().collect::<Vec<_>>();
+    budget_categories.sort();
+    writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (left, right, right), ").unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "[*Category*], align(left, [*Allowed amount*]), align(left, [*% of Total*]), ").unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    for category in budget_categories {
+        writeln!(buf, "[{}], [`{:.2}`], [`{:.0}%`],", category, budget.per_category.get(category).unwrap() * 30.0, (budget.per_category.get(category).unwrap() / budget.total)*100.0).unwrap();
+    writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "[*Total*], [`{:.2}`], ", budget.total * 30.0).unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "))").unwrap();
+
+
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "= 12 Month Overview").unwrap();
+    writeln!(buf, "").unwrap();
+        let mut total = 0.0;
+        let mut total_days = 0.0;
+        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+            let month_start = NaiveDate::from_ymd_opt(*y,*m, 1).unwrap();
+            total += m_stats.total;
+            total_days += days_in_month(month_start) as f64;
+        }
     
+        let average = total * 30.0 / total_days;
+        let color = if average > budget.total * 30.0 { "red" } else if average / (budget.total*30.0) > 0.75 { "orange" } else { "green" };
+        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*30.0), budget.total * 30.0).unwrap();
+            
+        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+        writeln!(buf, "import cetz.draw: *").unwrap();
+        writeln!(buf, "import cetz-plot: *").unwrap();
+        writeln!(buf, "chart.columnchart((").unwrap();
+        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+            let month_start = NaiveDate::from_ymd_opt(*y,*m, 1).unwrap();
+            let allowed = days_in_month(month_start) as f64 * budget.total;
+            if m_stats.total > allowed {
+                writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
+            } else {
+                writeln!(buf, "([{:02}/{}], {}),", m, y%100, m_stats.total).unwrap();
+            }
+        }
+        writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "}})]").unwrap();
+        writeln!(buf, "").unwrap();
+
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "= Data").unwrap();
+    writeln!(buf, "").unwrap();
+        let mut ns =stats.last_n_days.keys().collect::<Vec<_>>();
+        ns.sort();
+        for n_days in ns {
+            write_typ_table(&mut buf, stats, budget, *n_days);
+        }
+
     writeln!(buf, "").unwrap();
     let mut f = std::fs::File::create(file_path).unwrap();
     f.write(buf.as_slice()).unwrap();
@@ -491,9 +547,9 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let path = path.unwrap();
-    
+
     if add {
-        
+
     }
 
     let (transactions, budget) = parse_file(&path);
