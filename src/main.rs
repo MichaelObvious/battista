@@ -240,7 +240,7 @@ fn parse_amount_as_cents(field: &str) -> i64 {
 }
 
 fn print_usage() {
-    println!("USAGE: {} <path/to/file.csv>", env::args().next().unwrap());
+    println!("USAGE: {} <path/to/file.xml>", env::args().next().unwrap());
 }
 
 fn get_options() -> (Option<PathBuf>, bool) {
