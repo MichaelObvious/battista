@@ -1,81 +1,18 @@
 use std::{
-    cmp::Ordering, collections::HashMap, env, fmt::{self, Debug}, fs, hash::Hash, io::Write, path::PathBuf, process::exit, vec
+    collections::HashMap, env, fmt::Debug, fs, io::Write, path::PathBuf, process::exit
 };
 
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use quick_xml::{Reader, events::Event};
 
-#[derive(Clone, Debug, Default, EnumIter, PartialEq, Hash, Eq)]
-enum Category {
-    Books,
-    Charity,
-    Clothing,
-    Grocery,
-    Education,
-    Entrateinment,
-    Fine,
-    Gift,
-    Healthcare,
-    Hobby,
-    Insurance,
-    Rent,
-    Restaurants,
-    Savings,
-    Shopping,
-    Sport,
-    Taxes,
-    Transportation,
-    Travel,
-    Utilities,
-    Miscellaneous(String),
-    #[default]
-    Unknown,
-}
+const LAST_N_DAYS: [u64; 4] = [7, 14, 30, 365];
 
-impl fmt::Display for Category {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", {
-            match self {
-                Self::Books => String::from("Books"),
-                Self::Charity => String::from("Charity"),
-                Self::Clothing => String::from("Clothing"),
-                Self::Grocery => String::from("Grocery"),
-                Self::Education => String::from("Education"),
-                Self::Entrateinment => String::from("Entrateinment"),
-                Self::Fine => String::from("Fine"),
-                Self::Gift => String::from("Gift"),
-                Self::Healthcare => String::from("Healthcare"),
-                Self::Hobby => String::from("Hobby"),
-                Self::Insurance => String::from("Insurance"),
-                Self::Rent => String::from("Rent"),
-                Self::Restaurants => String::from("Restaurants"),
-                Self::Savings => String::from("Savings"),
-                Self::Shopping => String::from("Shopping"),
-                Self::Sport => String::from("Sport"),
-                Self::Taxes => String::from("Taxes"),
-                Self::Transportation => String::from("Transportation"),
-                Self::Travel => String::from("Travel"),
-                Self::Utilities => String::from("Utilities"),
-                Self::Miscellaneous(a) => match a.len() {
-                    0 => String::from("Miscellaneous"),
-                    _ => format!("Miscellaneous ({})", a),
-                },
-                Self::Unknown => String::from("Unknown"),
-            }
-        })
-    }
-}
+type Category = String;
 
-impl From<&str> for Category {
-    fn from(s: &str) -> Self {
-        for c in Category::iter() {
-            if &format!("{}", c) == s {
-                return c;
-            }
-        }
-        return Self::Miscellaneous(String::from(s));
-    }
+#[derive(Debug, Default)]
+struct Budget {
+    per_category: HashMap<Category, f64>,
+    total: f64,
 }
 
 #[derive(Debug, Default)]
@@ -83,19 +20,23 @@ struct Transaction {
     value: i64, // units and cents
     date: NaiveDate,
     category: Category,
-    end_date: NaiveDate,
     payment_method: String,
     note: String,
 }
 
 #[derive(Debug, Default)]
 struct Stats {
+    #[allow(unused)]
     per_day: f64,
-    total: i64,
-    by_category: Vec<(Category, i64)>,
-    by_payment_method: Vec<(String, i64)>,
-    by_note: Vec<(String, i64)>,
+    total: f64,
+    by_category: Vec<(Category, f64)>,
+    #[allow(unused)]
+    by_payment_method: Vec<(String, f64)>,
+    #[allow(unused)]
+    by_note: Vec<(String, f64)>,
+    #[allow(unused)]
     average_transaction: f64,
+    #[allow(unused)]
     transaction_count: u64,
 }
 
@@ -132,22 +73,22 @@ impl TempStats {
         self.transaction_count += 1;
     }
 
-    pub fn calc_averages(&mut self, days: i64) {
+    pub fn calc_averages(&mut self, days: u64) {
         let days = days as f64;
         self.per_day = self.get_total() / days;
         self.average_transaction = self.get_total() / self.transaction_count as f64;
     }
 
     pub fn into_stats(self) -> Stats {
-        let mut by_category = self.by_category.into_iter().collect::<Vec<_>>();
+        let mut by_category = self.by_category.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
         by_category.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
-        let mut by_payment_method = self.by_payment_method.into_iter().collect::<Vec<_>>();
+        let mut by_payment_method = self.by_payment_method.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
         by_payment_method.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
-        let mut by_note = self.by_note.into_iter().collect::<Vec<_>>();
+        let mut by_note = self.by_note.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
         by_note.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         Stats {
             per_day: self.per_day,
-            total: self.total,
+            total: self.total as f64 / 100.0,
             by_category,
             by_payment_method,
             by_note,
@@ -161,30 +102,18 @@ impl TempStats {
     }
 }
 
-impl Stats {
-    fn get_total(&self) -> f64 {
-        self.total as f64 / 100.0
-    }
-}
-
 #[derive(Debug, Default)]
 struct StatsCollection {
     yearly: Vec<(i32, Stats)>,         // year
     monthly: Vec<((i32, u32), Stats)>, // year, month
-    last_365_days: Stats,
-    last_30_days: Stats,
-    last_14_days: Stats,
-    last_7_days: Stats,
+    last_n_days: HashMap<u64, Stats>
 }
 
 #[derive(Debug, Default)]
 struct TempStatsCollection {
     yearly: HashMap<i32, TempStats>,         // year
     monthly: HashMap<(i32, u32), TempStats>, // year, month
-    last_365_days: TempStats,
-    last_30_days: TempStats,
-    last_14_days: TempStats,
-    last_7_days: TempStats,
+    last_n_days: HashMap<u64, TempStats>
 }
 
 impl TempStatsCollection {
@@ -204,10 +133,7 @@ impl TempStatsCollection {
         StatsCollection {
             yearly: yearly,
             monthly: monthly,
-            last_7_days: self.last_7_days.into_stats(),
-            last_14_days: self.last_14_days.into_stats(),
-            last_30_days: self.last_30_days.into_stats(),
-            last_365_days: self.last_365_days.into_stats(),
+            last_n_days: self.last_n_days.into_iter().map(|(x,y)| (x, y.into_stats())).collect(),
         }
     }
 }
@@ -287,8 +213,30 @@ fn year_as_i32(year_ce: (bool, u32)) -> i32 {
     }
 }
 
-fn escape_string_for_tex(str: &String) -> String {
-    str.replace('&', "\\&").replace('$', "\\$")
+fn parse_amount_as_cents(field: &str) -> i64 {
+    let negative = field.trim().starts_with('-');
+    let mut parts = field.split('.');
+    let units = parts.next().unwrap().trim().parse::<i32>().unwrap();
+    let cents = parts
+        .next()
+        .unwrap_or("0")
+        .trim()
+        .parse::<u32>()
+        .unwrap_or(0);
+
+    if cents >= 100 {
+        eprintln!(
+            "[ERROR] Could not parse amount `{}` (cents seem to have too many digits).",
+            field.trim(),
+        );
+        exit(1);
+    }
+    let cents = if units < 0 || negative {
+        -(cents as i64)
+    } else {
+        cents as i64
+    } * if cents < 10 { 10 } else { 1 };
+    return units as i64 * 100 + cents;
 }
 
 fn print_usage() {
@@ -297,12 +245,12 @@ fn print_usage() {
 
 fn get_options() -> (Option<PathBuf>, bool) {
     let args = env::args().skip(1);
-    let mut full = false;
+    let mut add = false;
 
     let mut path = None;
     for arg in args {
-        if arg == "-f" || arg == "--full" {
-            full = true;
+        if arg == "add" {
+            add = true;
         }
         let cur_path = PathBuf::from(arg);
         match cur_path.try_exists() {
@@ -314,101 +262,62 @@ fn get_options() -> (Option<PathBuf>, bool) {
         }
     }
 
-    return (path, full);
+    return (path, add);
 }
 
-fn parse_file(filepath: &PathBuf) -> Vec<Transaction> {
+fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, Budget) {
     let content = fs::read_to_string(&filepath).unwrap_or_default();
-    let lines = content.lines().skip(1);
+    let mut transactions  = Vec::new();
+    let mut budget = Budget::default();
 
-    let mut transactions = vec![];
+    let mut reader = Reader::from_str(&content);
+    reader.config_mut().trim_text(true);
 
-    for (line_idx, line) in lines.enumerate() {
-        let fields = line.split(';');
-        let mut transaction = Transaction::default();
-        for (field_idx, field) in fields.enumerate() {
-            match field_idx {
-                0 => {
-                    let negative = field.trim().starts_with('-');
-                    let mut parts = field.split('.');
-                    let units = parts.next().unwrap().trim().parse::<i32>().unwrap();
-                    let cents = parts
-                        .next()
-                        .unwrap_or("0")
-                        .trim()
-                        .parse::<u32>()
-                        .unwrap_or(0);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => match String::from_utf8(e.name().as_ref().to_vec()).unwrap().as_str() {
+                "budget" => {
+                    let attributes =  e.attributes().map(|x| {
+                        let x = x.unwrap();
+                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                    }).collect::<HashMap<_,_>>();
+                    let pot_category = attributes.get("category");
+                    if let Some(category) = pot_category {
+                        assert!(!budget.per_category.contains_key(category));
+                        budget.per_category.insert(category.to_owned(), attributes.get("amount").unwrap().parse::<f64>().unwrap() / attributes.get("duration").unwrap().parse::<f64>().unwrap());
+                    } else {
+                        budget.total = attributes.get("amount").unwrap().parse::<f64>().unwrap() / attributes.get("duration").unwrap().parse::<f64>().unwrap();
+                    }
+                },
+                "transaction" => {
+                    let attributes =  e.attributes().map(|x| {
+                        let x = x.unwrap();
+                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                    }).collect::<HashMap<_,_>>();
 
-                    if cents >= 100 {
-                        eprintln!(
-                            "[ERROR] Could not parse amount `{}` in {}:{} (cents seem to have too many digits).",
-                            field.trim(),
-                            filepath.display(),
-                            line_idx + 2
-                        );
-                        exit(1);
-                    }
-                    let cents = if units < 0 || negative {
-                        -(cents as i64)
-                    } else {
-                        cents as i64
-                    } * if cents < 10 { 10 } else { 1 };
-                    transaction.value = units as i64 * 100 + cents;
-                }
-                1 => {
-                    if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
-                        transaction.date = date;
-                    } else {
-                        eprintln!(
-                            "[ERROR] Could not parse date `{}` in {}:{}",
-                            field.trim(),
-                            filepath.display(),
-                            line_idx + 2
-                        );
-                        exit(1);
-                    }
-                }
-                2 => {
-                    transaction.category = Category::from(field.trim());
-                }
-                3 => {
-                    if let Ok(date) = NaiveDate::parse_from_str(field.trim(), "%d/%m/%Y") {
-                        transaction.end_date = date;
-                    } else {
-                        eprintln!(
-                            "[ERROR] Could not parse date `{}` in {}:{}",
-                            field.trim(),
-                            filepath.display(),
-                            line_idx + 2
-                        );
-                        exit(1);
-                    }
-                }
-                4 => {
-                    transaction.payment_method = String::from(field.trim());
-                }
-                5 => {
-                    transaction.note = String::from(field.trim());
-                }
-                _ => {}
-            }
+                    transactions.push(Transaction {
+                        category: attributes.get("category").unwrap().trim().to_owned(),
+                        date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
+                        value: parse_amount_as_cents(attributes.get("amount").unwrap()),
+                        note: if attributes.contains_key("note") { attributes.get("note").unwrap().to_owned() } else { String::default() },
+                        payment_method: attributes.get("payment-method").unwrap().trim().to_owned(),
+                    });
+                },
+                x => {
+                    println!("[ERROR]: Unknown tag: `{}`", x);
+                },
+            },
+            Ok(_) => {},
+            Err(e) => println!("[ERROR]: XML parsin error `{}`", e),
         }
-
-        if Ordering::is_gt(transaction.date.cmp(&transaction.end_date)) {
-            eprintln!(
-                "[ERROR] Date is later than end date in {}:{}",
-                filepath.display(),
-                line_idx + 2
-            );
-            exit(1);
-        }
-
-        transactions.push(transaction);
     }
 
-    transactions.sort_by(|a, b| a.date.cmp(&b.date));
+    if budget.total == 0.0 {
+        budget.total = budget.per_category.values().sum();
+    }
 
-    return transactions;
+    return (transactions, budget);
 }
 
 fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
@@ -434,20 +343,13 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         }
         tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
 
-        if (today - transaction.date).num_days() <= 7 {
-            tsc.last_7_days.update(transaction);
-        }
-
-        if (today - transaction.date).num_days() <= 14 {
-            tsc.last_14_days.update(transaction);
-        }
-
-        if (today - transaction.date).num_days() <= 30 {
-            tsc.last_30_days.update(transaction);
-        }
-
-        if (today - transaction.date).num_days() <= 365 {
-            tsc.last_365_days.update(transaction);
+        for i in LAST_N_DAYS.iter() {
+            if (today - transaction.date).num_days() <= *i as i64 {
+                if !tsc.last_n_days.contains_key(i) {
+                    tsc.last_n_days.insert(*i, TempStats::default());
+                }
+                tsc.last_n_days.get_mut(&i).unwrap().update(transaction);
+            }    
         }
     }
 
@@ -459,7 +361,9 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let days = days_in_year(year_start);
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {}", year_start, period_start, period_end, days, days2);
-        v.calc_averages(days.min(days2));
+        let ndays = days.min(days2);
+        assert!(ndays > 0);
+        v.calc_averages(ndays as u64);
     }
 
     for (k, v) in tsc.monthly.iter_mut() {
@@ -474,794 +378,110 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let days = days_in_month(month_start);
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {} {}", month_start, month_end, period_start, period_end, days, days2);
-        v.calc_averages(days.min(days2));
+        let ndays = days.min(days2);
+        assert!(ndays > 0);
+        v.calc_averages(ndays as u64);
     }
 
-
-    tsc.last_7_days.calc_averages(7);
-    tsc.last_14_days.calc_averages(14);
-    tsc.last_30_days.calc_averages(30);
-    tsc.last_365_days.calc_averages(365);
+    let ns = tsc.last_n_days.keys().map(|x| *x).collect::<Vec<_>>();
+    for n in ns.into_iter() {
+        tsc.last_n_days.get_mut(&n).unwrap().calc_averages(n);
+    }
 
     return tsc.into_stats_collection();
 }
 
-fn print_stats(stats: &StatsCollection) {
-    let today = Local::now().date_naive();
+fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, n_days: u64) {
+    let stats = stats.last_n_days.get(&n_days).unwrap();
+    writeln!(buf, "= Last {} days", n_days).unwrap();
+        writeln!(buf, "").unwrap();
+        writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Total*], [*Allowed spending*],").unwrap();
+        writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+        for (category, amount) in stats.by_category.iter() {
+            write!(buf, "    [{}], align(right, [`{:.2}`]), align(right, [`{:.2}%`]),", category, amount, (*amount / stats.total) * 100.0).unwrap();
+            let allowed_amount = if let Some(allowed_amount) = budget.per_category.get(category) {
+                let allowed = allowed_amount*n_days as f64 - *amount;
+                (format!("{:.2}", allowed), if allowed >= 0.0  { 
+                    if allowed / allowed_amount >= 0.25 {
+                        "green"
+                    } else {
+                        "orange"
+                    }
+                } else {
+                    "red"
+                })
 
-    println!("SPENDING REPORT");
-    println!("===============");
-
-    let mut this_year = None;
-    for (year, yearly) in stats.yearly.iter() {
-        if *year == year_as_i32(today.year_ce()) {
-            this_year = Some(yearly)
-        };
-        println!(
-            "  - {}: {:.2} ({:.2} per day)",
-            year,
-            yearly.get_total(),
-            yearly.per_day
-        );
-    }
-
-    if let Some(this_year) = this_year {
-        println!("    - Categories:");
-        let max_len = this_year
-            .by_category
-            .iter()
-            .map(|x| x.0.to_string().len())
-            .max()
-            .unwrap_or_default();
-        for (c, v) in this_year.by_category.iter() {
-            let percentage = (*v as f64 / this_year.total as f64) * 100.0;
-            println!(
-                "       - {:<3$}: {:7.2} ({:5.2}%)",
-                c.to_string(),
-                *v as f64 / 100.0,
-                percentage,
-                max_len
-            );
+            } else {
+                (String::default(), "black")
+            }; 
+            write!(buf, "align(right, text([`{}`], fill: {})), ", allowed_amount.0, allowed_amount.1).unwrap();
+            writeln!(buf).unwrap();
+            writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap()
         }
+        writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+        let allowed_amount =if budget.total > 0.0 {
+                let allowed = budget.total*n_days as f64 - stats.total;
+                (format!("{:.2}", allowed), if allowed >= 0.0  { 
+                    if allowed / budget.total >= 0.25 {
+                        "green"
+                    } else {
+                        "orange"
+                    }
+                } else {
+                    "red"
+                })
 
-        println!("    - Payment methods:");
-        let max_len = this_year
-            .by_payment_method
-            .iter()
-            .map(|x| x.0.len())
-            .max()
-            .unwrap_or_default();
-        for (pm, v) in this_year.by_payment_method.iter() {
-            let percentage = (*v as f64 / this_year.total as f64) * 100.0;
-            println!(
-                "       - {:<3$}: {:7.2} ({:5.2}%)",
-                pm,
-                *v as f64 / 100.0,
-                percentage,
-                max_len
-            );
+            } else {
+                (String::default(), "black")
+            };
+        writeln!(buf, "    [*Total*], align(right, [`{:.2}`]), align(right, [`{:.2}%`]), align(right, text([`{}`], fill: {})), ", stats.total as f64, 100.0, allowed_amount.0, allowed_amount.1).unwrap();
+        writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+        writeln!(buf, "))").unwrap();
+        writeln!(buf, "").unwrap();
+        if n_days > 31 {
+            writeln!(buf, "#v(2em)").unwrap();
+            writeln!(buf, "").unwrap();
+            writeln!(buf, "#align(center, [*Biggest expenses*])").unwrap();
+            writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
+            for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > 50.0).zip(0..10) {
+                writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();    
+            }
+            writeln!(buf, "))").unwrap();
         }
-    }
-
-    let mut this_month = None;
-    println!("    - Months:");
-    for ((y, m), monthly) in stats.monthly.iter() {
-        if *y != year_as_i32(today.year_ce()) {
-            continue;
-        }
-        if *m == today.month0() + 1 {
-            this_month = Some(monthly)
-        }
-        let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        println!(
-            "      - {:9}: {:7.2} ({:5.2} per day)",
-            month_name,
-            monthly.get_total(),
-            monthly.per_day
-        );
-    }
-
-    if let Some(this_month) = this_month {
-        println!("        - Categories:");
-        let max_len = this_month
-            .by_category
-            .iter()
-            .map(|x| x.0.to_string().len())
-            .max()
-            .unwrap_or_default();
-        for (c, v) in this_month.by_category.iter() {
-            let percentage = (*v as f64 / this_month.total as f64) * 100.0;
-            println!(
-                "           - {:<3$}: {:7.2} ({:5.2}%)",
-                c.to_string(),
-                *v as f64 / 100.0,
-                percentage,
-                max_len
-            );
-        }
-    }
-    println!();
-    println!(
-        "Spent last 365 days: {:.2} ({:.2} per day)",
-        stats.last_365_days.get_total(),
-        stats.last_365_days.per_day
-    );
-    println!(
-        "Spent last 30 days: {:.2} ({:.2} per day)",
-        stats.last_30_days.get_total(),
-        stats.last_30_days.per_day
-    );
-    println!(
-        "Spent last 14 days: {:.2} ({:.2} per day)",
-        stats.last_14_days.get_total(),
-        stats.last_14_days.per_day
-    );
-    println!(
-        "Spent last 7 days: {:.2} ({:.2} per day)",
-        stats.last_7_days.get_total(),
-        stats.last_7_days.per_day
-    );
-    println!();
-    println!("===============");
 }
 
-fn write_tex_stats(file_path: &PathBuf, stats: &StatsCollection, original_path: &PathBuf, full_report: bool) {
-    let today_date_formatted = Local::now().date_naive().format("%B %d, %Y");
+fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budget, original_path: &PathBuf) {
+    let today = Local::now().date_naive();
 
     let mut buf = Vec::new();
-    writeln!(buf, "\\documentclass[9pt, a4paper]{{article}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\usepackage[english]{{babel}}").unwrap();
-    writeln!(buf, "\\usepackage{{csquotes}}").unwrap();
-    writeln!(buf, "\\usepackage[portrait]{{geometry}}").unwrap();
-    writeln!(buf, "\\usepackage{{hyperref}}").unwrap();
-    writeln!(buf, "\\usepackage{{longtable}}").unwrap();
-    writeln!(buf, "\\usepackage{{microtype}}").unwrap();
-    writeln!(buf, "\\usepackage{{pgfplots}}").unwrap();
-    writeln!(buf).unwrap();
+    writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
+    writeln!(buf, "#set text(12pt)").unwrap();
+    writeln!(buf, "#show heading: it => align(center, box(inset: (top: 2em, bottom: 1em),it))").unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#v(4em)").unwrap();
+    writeln!(buf, "#align(center, text([*Spending report from* `{}`], 20pt))", original_path.display()).unwrap();
+    writeln!(buf, "#align(center, link(\"https://www.github.com/MichaelObvious/battista\", [battista {}]))", env!("CARGO_PKG_VERSION")).unwrap();
+    writeln!(buf, "#align(center, [{}])", today.format("%B %-d, %Y")).unwrap();
+    writeln!(buf, "#v(5em)").unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#outline()").unwrap();
+    writeln!(buf, "").unwrap();
+    
 
-    writeln!(buf, "\\hypersetup{{").unwrap();
-    writeln!(buf, "    colorlinks=true,").unwrap();
-    writeln!(buf, "    linkcolor=black,").unwrap();
-    writeln!(buf, "    urlcolor=black,").unwrap();
-    writeln!(buf, "    bookmarks=true,").unwrap();
-    writeln!(
-        buf,
-        "    pdftitle={{Spending report from {} ({})}},",
-        original_path.display(),
-        today_date_formatted
-    )
-    .unwrap();
-    writeln!(buf, "}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(
-        buf,
-        "\\title{{\\textbf{{Spending report from}} \\texttt{{{}}}}}",
-        original_path.display()
-    )
-    .unwrap();
-    writeln!(
-        buf,
-        "\\author{{\\href{{{}}}{{{}}} {}}}",
-        "https://www.github.com/MichaelObvious/battista",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION")
-    )
-    .unwrap();
-    writeln!(buf, "\\date{{{}}}", today_date_formatted).unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\makeindex").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\begin{{document}}").unwrap();
-    writeln!(buf, "  \\maketitle").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\tableofcontents").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\clearpage").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\section{{Overview}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Years}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
-    writeln!(buf, "    \\small").unwrap();
-    writeln!(buf, "    \\begin{{axis}}[").unwrap();
-    writeln!(
-        buf,
-        "      symbolic y coords={{{}}},",
-        stats
-            .yearly
-            .iter()
-            .map(|(y, _)| format!("{}", y))
-            .rev()
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-    .unwrap();
-    writeln!(buf, "      xbar,").unwrap();
-    writeln!(buf, "      ybar,").unwrap();
-    writeln!(buf, "      ytick=data,").unwrap();
-    writeln!(buf, "      width=\\textwidth,").unwrap();
-    writeln!(buf, "      height={}cm,", (0.75 * stats.yearly.len() as f64).max(5.0)).unwrap();
-    writeln!(buf, "      nodes near coords,").unwrap();
-    writeln!(
-        buf,
-        "      every node near coord/.append style={{anchor=west,font=\\tiny}},"
-    )
-    .unwrap();
-    writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
-    writeln!(buf, "      enlarge x limits={{abs={}cm,upper}},", 1.0).unwrap();
-    writeln!(buf, "      enlarge y limits={{abs={}cm}},", 0.50).unwrap();
-    writeln!(buf, "      xmin=0,").unwrap();
-    writeln!(buf, "    ]").unwrap();
-    writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
-    // let start_year = stats.monthly.first().unwrap().0 .0;
-    // let start_month = stats.monthly.first().unwrap().0.1;
-    for (y, yearly) in stats.yearly.iter() {
-        // let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        writeln!(buf, "      ({},{})", yearly.per_day, y).unwrap();
+    let mut ns =stats.last_n_days.keys().collect::<Vec<_>>();
+    ns.sort();
+    for n_days in ns {
+        write_typ_table(&mut buf, stats, budget, *n_days);
     }
-    writeln!(buf, "}};").unwrap();
-
-    writeln!(buf, "\\addplot[smooth, black!67,").unwrap();
-    // writeln!(
-    //     buf,
-    //     "      every node near coord/.append style={{anchor=east,font=\\tiny}},"
-    // )
-    // .unwrap();
-    writeln!(buf, "] coordinates {{").unwrap();
-    let values = stats.yearly.iter().map(|x| x.1.per_day).collect();
-    for (value, y) in moving_average(values, 12)
-        .into_iter()
-        .zip(stats.yearly.iter().map(|x| x.0))
-    {
-        // let idx = (y - start_year) * 12 + (m - start_month) as i32;
-        writeln!(buf, "      ({},{})", value, y).unwrap();
-    }
-    writeln!(buf, "}};").unwrap();
-    // writeln!(buf, "    \\centering").unwrap();
-    // writeln!(buf, "    \\includegraphics[width=\\textwidth]{{{}}}", image_path.display()).unwrap();
-    writeln!(buf, "  \\end{{axis}}").unwrap();
-    writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\clearpage").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Months}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{tikzpicture}}").unwrap();
-    writeln!(buf, "    \\small").unwrap();
-    writeln!(buf, "    \\begin{{axis}}[").unwrap();
-    writeln!(
-        buf,
-        "      symbolic y coords={{{}}},",
-        stats
-            .monthly
-            .iter()
-            .map(|((y, m), _)| format!("{:02}/{}", m, y % 100))
-            .rev()
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-    .unwrap();
-    writeln!(buf, "      xbar,").unwrap();
-    writeln!(buf, "      ybar,").unwrap();
-    writeln!(buf, "      ytick=data,").unwrap();
-    writeln!(buf, "      width=\\textwidth,").unwrap();
-    writeln!(buf, "      height={}cm,", (0.75 * stats.monthly.len() as f64).max(5.0)).unwrap();
-    writeln!(buf, "      nodes near coords,").unwrap();
-    writeln!(
-        buf,
-        "      every node near coord/.append style={{anchor=west,font=\\tiny}},"
-    )
-    .unwrap();
-    writeln!(buf, "      xlabel={{Daily Average}},").unwrap();
-    writeln!(buf, "      enlarge x limits={{abs={}cm,upper}},", 1.0).unwrap();
-    writeln!(buf, "      enlarge y limits={{abs={}cm}},", 0.50).unwrap();
-    writeln!(buf, "      xmin=0,").unwrap();
-    writeln!(buf, "    ]").unwrap();
-    writeln!(buf, "\\addplot[xbar, fill=black!20] coordinates {{").unwrap();
-    // let start_year = stats.monthly.first().unwrap().0 .0;
-    // let start_month = stats.monthly.first().unwrap().0.1;
-    for ((y, m), monthly) in stats.monthly.iter() {
-        // let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        writeln!(buf, "      ({},{:02}/{})", monthly.per_day, m, y % 100).unwrap();
-    }
-    writeln!(buf, "}};").unwrap();
-
-    writeln!(buf, "\\addplot[smooth, black!67,").unwrap();
-    // writeln!(
-    //     buf,
-    //     "      every node near coord/.append style={{anchor=east,font=\\tiny}},"
-    // )
-    // .unwrap();
-    writeln!(buf, "] coordinates {{").unwrap();
-    let values = stats.monthly.iter().map(|x| x.1.per_day).collect();
-    for (value, (y, m)) in moving_average(values, 12)
-        .into_iter()
-        .zip(stats.monthly.iter().map(|x| x.0))
-    {
-        // let idx = (y - start_year) * 12 + (m - start_month) as i32;
-        writeln!(buf, "      ({},{:02}/{})", value, m, y % 100).unwrap();
-    }
-    writeln!(buf, "}};").unwrap();
-    // writeln!(buf, "    \\centering").unwrap();
-    // writeln!(buf, "    \\includegraphics[width=\\textwidth]{{{}}}", image_path.display()).unwrap();
-    writeln!(buf, "  \\end{{axis}}").unwrap();
-    writeln!(buf, "  \\end{{tikzpicture}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\clearpage").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 7 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    for (cat, amount) in stats.last_7_days.by_category.iter().clone() {
-        writeln!(
-            buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
-            cat,
-            *amount as f64 / 700.0,
-            *amount as f64 / 100.0,
-            *amount as f64 / stats.last_7_days.get_total(),
-        )
-        .unwrap();
-        writeln!(buf, "    \\hline").unwrap();
-    }
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
-        stats.last_7_days.per_day,
-        stats.last_7_days.get_total(),
-        100,
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\end{{longtable}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 14 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    for (cat, amount) in stats.last_14_days.by_category.iter().clone() {
-        writeln!(
-            buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
-            cat,
-            *amount as f64 / 1400.0,
-            *amount as f64 / 100.0,
-            *amount as f64 / stats.last_14_days.get_total(),
-        )
-        .unwrap();
-        writeln!(buf, "    \\hline").unwrap();
-    }
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
-        stats.last_14_days.per_day,
-        stats.last_14_days.get_total(),
-        100,
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\end{{longtable}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 30 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
-    ).unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    for (cat, amount) in stats.last_30_days.by_category.iter().clone() {
-        writeln!(
-            buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
-            cat,
-            *amount as f64 / 3000.0,
-            *amount as f64 / 100.0,
-            *amount as f64 / stats.last_30_days.get_total(),
-        )
-        .unwrap();
-        writeln!(buf, "    \\hline").unwrap();
-    }
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}}\\\\",
-        stats.last_30_days.per_day,
-        stats.last_30_days.get_total(),
-        100,
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\end{{longtable}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\subsection{{Last 365 days}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\begin{{longtable}}{{l r r r}}").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Category}} & \\textbf{{Daily average}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Total}}}}& \\multicolumn{{1}}{{l}}{{\\textbf{{Percentge}}}}\\\\"
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    for (cat, amount) in stats.last_365_days.by_category.iter().clone() {
-        writeln!(
-            buf,
-            "    {} & \\texttt{{{:.2}}}  & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}}\\\\",
-            cat,
-            *amount as f64 / 36500.0,
-            *amount as f64 / 100.0,
-            *amount as f64 / stats.last_365_days.get_total(),
-        )
-        .unwrap();
-        writeln!(buf, "    \\hline").unwrap();
-    }
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(
-        buf,
-        "    \\textbf{{Total}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}& \\texttt{{{}\\%}}\\\\",
-        stats.last_365_days.per_day,
-        stats.last_365_days.get_total(),
-        100,
-    )
-    .unwrap();
-    writeln!(buf, "    \\hline").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "  \\end{{longtable}}").unwrap();
-    writeln!(buf).unwrap();
-    writeln!(buf, "\\clearpage").unwrap();
-    writeln!(buf).unwrap();
-    if full_report {
-        writeln!(buf, "  \\section{{Yearly spending}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(
-            buf,
-            "      \\textbf{{Year}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily Average}}}}\\\\"
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        for (year, yearly) in stats.yearly.iter().rev() {
-            writeln!(
-                buf,
-                "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
-                year,
-                yearly.get_total(),
-                yearly.per_day
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "\\clearpage").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\subsection{{By Category}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        for (year, yearly) in stats.yearly.iter().rev() {
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(
-                buf,
-                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-                year
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            for (cat, value) in yearly.by_category.iter() {
-                let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-                if percentage > 100.0 - 1e-3 {
-                    writeln!(
-                        buf,
-                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                        cat,
-                        *value as f64 / 100.0,
-                        100
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(
-                        buf,
-                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                        cat,
-                        *value as f64 / 100.0,
-                        percentage
-                    )
-                    .unwrap();
-                }
-                writeln!(buf, "      \\hline").unwrap();
-            }
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-        // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
-        // writeln!(buf).unwrap();
-        // writeln!(buf, "  \\begin{{center}}").unwrap();
-        // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        // for (year, yearly) in stats.yearly.iter() {
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     writeln!(
-        //         buf,
-        //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-        //         year
-        //     )
-        //     .unwrap();
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     for (pm, value) in yearly.by_payment_method.iter() {
-        //         let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-        //         if percentage > 100.0 - 1e-3 {
-        //             writeln!(
-        //                 buf,
-        //                 "      {} & {:.2} & {}\\% \\\\",
-        //                 pm,
-        //                 *value as f64 / 100.0,
-        //                 100
-        //             )
-        //             .unwrap();
-        //         } else {
-        //             writeln!(
-        //                 buf,
-        //                 "      {} & {:.2} & {:.2}\\% \\\\",
-        //                 pm,
-        //                 *value as f64 / 100.0,
-        //                 percentage
-        //             )
-        //             .unwrap();
-        //         }
-        //         writeln!(buf, "      \\hline").unwrap();
-        //     }
-        // }
-        // writeln!(buf, "    \\end{{longtable}}").unwrap();
-        // writeln!(buf, "  \\end{{center}}").unwrap();
-        // writeln!(buf).unwrap();
-        writeln!(buf, "  \\subsection{{By Note}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        for (year, yearly) in stats.yearly.iter().rev() {
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(
-                buf,
-                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{}}}}}\\\\",
-                year
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            for (note, value) in yearly.by_note.iter() {
-                let note = escape_string_for_tex(note);
-                let percentage = (*value as f64 / yearly.total as f64) * 100.0;
-                if percentage > 100.0 - 1e-3 {
-                    writeln!(
-                        buf,
-                        "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                        note,
-                        *value as f64 / 100.0,
-                        100
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(
-                        buf,
-                        "      \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                        note,
-                        *value as f64 / 100.0,
-                        percentage
-                    )
-                    .unwrap();
-                }
-                writeln!(buf, "      \\hline").unwrap();
-            }
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\section{{Monthly spending}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(
-            buf,
-            "      \\textbf{{Month}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Daily average}}}}\\\\"
-        )
-        .unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        writeln!(buf, "      \\hline").unwrap();
-        for ((y, m), monthly) in stats.monthly.iter().rev() {
-            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-            writeln!(
-                buf,
-                "      {} {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}}}\\\\",
-                month_name,
-                y,
-                monthly.get_total(),
-                monthly.per_day
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "\\clearpage").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\subsection{{By Category}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        for ((y, m), monthly) in stats.monthly.iter().rev() {
-            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(
-                buf,
-                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-                month_name, y
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(buf, "      \\textbf{{Category}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            for (cat, value) in monthly.by_category.iter() {
-                let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-                if percentage > 100.0 - 1e-3 {
-                    writeln!(
-                        buf,
-                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                        cat,
-                        *value as f64 / 100.0,
-                        100
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(
-                        buf,
-                        "      {} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                        cat,
-                        *value as f64 / 100.0,
-                        percentage
-                    )
-                    .unwrap();
-                }
-                writeln!(buf, "      \\hline").unwrap();
-            }
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-        // writeln!(buf, "  \\subsection{{By Payment method}}").unwrap();
-        // writeln!(buf).unwrap();
-        // writeln!(buf, "  \\begin{{center}}").unwrap();
-        // writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        // for ((y, m), monthly) in stats.monthly.iter() {
-        //     let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     writeln!(
-        //         buf,
-        //         "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-        //         month_name, y
-        //     )
-        //     .unwrap();
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     writeln!(buf, "      \\textbf{{Payment method}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-        //     writeln!(buf, "      \\hline").unwrap();
-        //     for (pm, value) in monthly.by_payment_method.iter() {
-        //         let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-        //         if percentage > 100.0 - 1e-3 {
-        //             writeln!(
-        //                 buf,
-        //                 "      {} & {:.2} & {}\\% \\\\",
-        //                 pm,
-        //                 *value as f64 / 100.0,
-        //                 100
-        //             )
-        //             .unwrap();
-        //         } else {
-        //             writeln!(
-        //                 buf,
-        //                 "      {} & {:.2} & {:.2}\\% \\\\",
-        //                 pm,
-        //                 *value as f64 / 100.0,
-        //                 percentage
-        //             )
-        //             .unwrap();
-        //         }
-        //         writeln!(buf, "      \\hline").unwrap();
-        //     }
-        // }
-        // writeln!(buf, "    \\end{{longtable}}").unwrap();
-        // writeln!(buf, "  \\end{{center}}").unwrap();
-        // writeln!(buf).unwrap();
-        writeln!(buf, "\\clearpage").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\subsection{{By Note}}").unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "  \\begin{{center}}").unwrap();
-        writeln!(buf, "    \\begin{{longtable}}{{l r r}}").unwrap();
-        for ((y, m), monthly) in stats.monthly.iter().rev() {
-            let month_name = NaiveDate::from_ymd_opt(*y, *m, 1).unwrap().format("%B");
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(
-                buf,
-                "      \\multicolumn{{3}}{{c}}{{\\textbf{{{} {}}}}}\\\\",
-                month_name, y
-            )
-            .unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            writeln!(buf, "      \\textbf{{Note}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Spent}}}} & \\multicolumn{{1}}{{l}}{{\\textbf{{Percentage}}}}\\\\").unwrap();
-            writeln!(buf, "      \\hline").unwrap();
-            for (note, value) in monthly.by_note.iter() {
-                let note = escape_string_for_tex(note);
-                let percentage = (*value as f64 / monthly.total as f64) * 100.0;
-                if percentage > 100.0 - 1e-3 {
-                    writeln!(
-                        buf,
-                        "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{}\\%}} \\\\",
-                        note,
-                        *value as f64 / 100.0,
-                        100
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(
-                        buf,
-                        "       \\textquote{{{}}} & \\texttt{{{:.2}}} & \\texttt{{{:.2}\\%}} \\\\",
-                        note,
-                        *value as f64 / 100.0,
-                        percentage
-                    )
-                    .unwrap();
-                }
-                writeln!(buf, "      \\hline").unwrap();
-            }
-        }
-        writeln!(buf, "    \\end{{longtable}}").unwrap();
-        writeln!(buf, "  \\end{{center}}").unwrap();
-        writeln!(buf).unwrap();
-    }
-    writeln!(buf, "\\end{{document}}").unwrap();
+    
+    writeln!(buf, "").unwrap();
     let mut f = std::fs::File::create(file_path).unwrap();
     f.write(buf.as_slice()).unwrap();
 }
 
+
 fn main() {
-    let (path, full_report) = get_options();
+    let (path, add) = get_options();
 
     if path.is_none() {
         eprintln!("[ERROR] No file provided.");
@@ -1271,7 +491,12 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let path = path.unwrap();
-    let transactions = parse_file(&path);
+    
+    if add {
+        
+    }
+
+    let (transactions, budget) = parse_file(&path);
 
     if transactions.is_empty() {
         println!("[INFO] Provided file has no transactions. Exiting...");
@@ -1279,10 +504,10 @@ fn main() {
     }
 
     let stats = get_stats(&transactions);
-    print_stats(&stats);
+    // print_stats(&stats);
 
-    let mut out_tex_path = path.clone();
-    out_tex_path.set_extension("tex");
-    write_tex_stats(&out_tex_path, &stats, &path, full_report);
-    println!("Detailed report saved in `{}`.", out_tex_path.display());
+    let mut out_path = path.clone();
+    out_path.set_extension("typ");
+    write_typ_report(&out_path, &stats, &budget, &path);
+    println!("Detailed report saved in `{}`.", out_path.display());
 }
