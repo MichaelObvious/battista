@@ -400,17 +400,20 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
         for (category, amount) in stats.by_category.iter() {
             write!(buf, "    [{}], align(right, [`{:.2}`]), align(right, [`{:.2}%`]),", category, amount, (*amount / stats.total) * 100.0).unwrap();
             let allowed_amount = if let Some(allowed_amount) = budget.per_category.get(category) {
-                let allowed = allowed_amount*n_days as f64 - *amount;
-                (format!("{:.2}", allowed), if allowed >= 0.0  {
-                    if allowed / allowed_amount >= 0.25 {
-                        "green"
+                if budget.total*n_days as f64 > stats.total {
+                    let allowed = allowed_amount*n_days as f64 - *amount;
+                    (format!("{:.2}", allowed), if allowed >= 0.0  {
+                        if allowed / allowed_amount >= 0.25 {
+                            "green"
+                        } else {
+                            "orange"
+                        }
                     } else {
-                        "orange"
-                    }
+                        "red"
+                    })
                 } else {
-                    "red"
-                })
-
+                    (String::default(), "black")
+                }
             } else {
                 (String::default(), "black")
             };
