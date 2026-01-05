@@ -444,7 +444,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
         if n_days > 31 {
             writeln!(buf, "#v(2em)").unwrap();
             writeln!(buf, "").unwrap();
-            writeln!(buf, "#align(center, [*Biggest expenses*])").unwrap();
+            writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
             for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > 50.0).zip(0..10) {
                 writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();
@@ -461,17 +461,23 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#import \"@preview/cetz-plot:0.1.1\"").unwrap();
     writeln!(buf, "").unwrap();
     writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
-    writeln!(buf, "#set page(numbering: \"1 of 1\")").unwrap();
+    writeln!(buf, "#set page(width: 320mm, height: 200mm, numbering: \"1 of 1\")").unwrap();
     writeln!(buf, "#set text(12pt)").unwrap();
-    writeln!(buf, "#show heading.where(level: 1): it => align(center, box(inset: (top: 2em, bottom: 0.5em),it))").unwrap();
+    writeln!(buf, "#show heading.where(level: 3): it => align(center, box(inset: (top: 2em, bottom: 0.25em), text(it, 16pt)))").unwrap();
+    writeln!(buf, "#show heading.where(level: 2): it => align(center, box(inset: (top: 1em, bottom: 0.25em), text(it, 18pt)))").unwrap();
+    writeln!(buf, "#show heading.where(level: 1): it => pagebreak() + align(center, box(inset: (top: 2em, bottom: 0.5em), text(it, 24pt)))").unwrap();
     writeln!(buf, "#set heading(numbering: \"1.\")").unwrap();
     writeln!(buf, "").unwrap();
 
-    writeln!(buf, "#v(4em)").unwrap();
-    writeln!(buf, "#align(center, text([*Spending report from* `{}`], 20pt))", original_path.display()).unwrap();
-    writeln!(buf, "#align(center, link(\"https://www.github.com/MichaelObvious/battista\", [battista {}]))", env!("CARGO_PKG_VERSION")).unwrap();
-    writeln!(buf, "#align(center, [{}])", today.format("%B %-d, %Y")).unwrap();
-    writeln!(buf, "#v(5em)").unwrap();
+    writeln!(buf, "#v(1fr)").unwrap();
+    writeln!(buf, "#align(center, text([*Spending report from* `{}`], 28pt))", original_path.display()).unwrap();
+    writeln!(buf, "#align(center, text([January 5, 2026], 20pt))").unwrap();
+    writeln!(buf, "#v(1.25fr)").unwrap();
+    writeln!(buf, "#align(center, link(\"https://www.github.com/MichaelObvious/battista\", text([`battista {}`], 16pt)))", env!("CARGO_PKG_VERSION")).unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#v(3em)").unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#pagebreak(weak: true)").unwrap();
 
     writeln!(buf, "").unwrap();
     writeln!(buf, "#outline()").unwrap();
@@ -508,6 +514,9 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * 30.0 / total_days;
         let color = if average > budget.total * 30.0 { "red" } else if average / (budget.total*30.0) > 0.75 { "orange" } else { "green" };
         writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*30.0), budget.total * 30.0).unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "#v(1em)").unwrap();
+        writeln!(buf).unwrap();
             
         writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
         writeln!(buf, "import cetz.draw: *").unwrap();
@@ -526,9 +535,50 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "}})]").unwrap();
         writeln!(buf, "").unwrap();
 
+     writeln!(buf, "").unwrap();
+    writeln!(buf, "= 5 Year Overview").unwrap();
+    writeln!(buf, "").unwrap();
+        let mut total = 0.0;
+        let mut total_days = 0.0;
+        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
+                total_days += 366.0;
+            } else {
+                total_days += 365.0;
+            }
+            total += y_stats.total;
+        }
+    
+        let average = total * 365.0 / total_days;
+        let color = if average > budget.total * 365.0 { "red" } else if average / (budget.total*365.0) > 0.75 { "orange" } else { "green" };
+        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 365 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*365.0), budget.total * 365.0).unwrap();
+        writeln!(buf).unwrap();
+        writeln!(buf, "#v(1em)").unwrap();
+        writeln!(buf).unwrap();
+            
+        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+        writeln!(buf, "import cetz.draw: *").unwrap();
+        writeln!(buf, "import cetz-plot: *").unwrap();
+        writeln!(buf, "chart.columnchart((").unwrap();
+        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            let allowed = if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
+                    366.0
+                } else {
+                    365.0
+                } * budget.total;
+            if y_stats.total > allowed {
+                writeln!(buf, "([{:04}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
+            } else {
+                writeln!(buf, "([{:04}], {}),", y, y_stats.total).unwrap();
+            }
+        }
+        writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "}})]").unwrap();
+        writeln!(buf, "").unwrap();
+
     writeln!(buf, "").unwrap();
     writeln!(buf, "= Data").unwrap();
-    writeln!(buf, "").unwrap();
+        writeln!(buf, "").unwrap();
         let mut ns =stats.last_n_days.keys().collect::<Vec<_>>();
         ns.sort();
         for n_days in ns {
