@@ -14,9 +14,7 @@ cargo run --release <path/to/file.csv>
 
 ```sh
 cargo install --path .
-battista <path/to/file.csv>
+battista <path/to/file.xml>
 ```
 
-Supply a `.csv` file like the [`example.csv`](./example.csv).
-
-Spending categories as of right now include: `Books`, `Charity`, `Clothing`, `Grocery`, `Education`, `Entrateinment`, `Fine`, `Gift`, `Healthcare`, `Hobby`, `Insurance`, `Rent`, `Restaurants`, `Savings`, `Shopping`, `Sport`, `Taxes`, `Transportation`, `Travel`, `Utilities`, `Miscellaneous`, `Unknown`.
+Supply a `.xml` file like the [`example.xml`](./example.xml).
