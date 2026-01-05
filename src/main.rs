@@ -535,46 +535,46 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "}})]").unwrap();
         writeln!(buf, "").unwrap();
 
-     writeln!(buf, "").unwrap();
-    writeln!(buf, "= 5 Year Overview").unwrap();
-    writeln!(buf, "").unwrap();
-        let mut total = 0.0;
-        let mut total_days = 0.0;
-        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
-            if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
-                total_days += 366.0;
-            } else {
-                total_days += 365.0;
-            }
-            total += y_stats.total;
-        }
+    // writeln!(buf, "").unwrap();
+    // writeln!(buf, "= 5 Year Overview").unwrap();
+    // writeln!(buf, "").unwrap();
+    //     let mut total = 0.0;
+    //     let mut total_days = 0.0;
+    //     for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+    //         if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
+    //             total_days += 366.0;
+    //         } else {
+    //             total_days += 365.0;
+    //         }
+    //         total += y_stats.total;
+    //     }
     
-        let average = total * 365.0 / total_days;
-        let color = if average > budget.total * 365.0 { "red" } else if average / (budget.total*365.0) > 0.75 { "orange" } else { "green" };
-        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 365 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*365.0), budget.total * 365.0).unwrap();
-        writeln!(buf).unwrap();
-        writeln!(buf, "#v(1em)").unwrap();
-        writeln!(buf).unwrap();
+    //     let average = total * 365.0 / total_days;
+    //     let color = if average > budget.total * 365.0 { "red" } else if average / (budget.total*365.0) > 0.75 { "orange" } else { "green" };
+    //     writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 365 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*365.0), budget.total * 365.0).unwrap();
+    //     writeln!(buf).unwrap();
+    //     writeln!(buf, "#v(1em)").unwrap();
+    //     writeln!(buf).unwrap();
             
-        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
-        writeln!(buf, "import cetz.draw: *").unwrap();
-        writeln!(buf, "import cetz-plot: *").unwrap();
-        writeln!(buf, "chart.columnchart((").unwrap();
-        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
-            let allowed = if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
-                    366.0
-                } else {
-                    365.0
-                } * budget.total;
-            if y_stats.total > allowed {
-                writeln!(buf, "([{:04}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
-            } else {
-                writeln!(buf, "([{:04}], {}),", y, y_stats.total).unwrap();
-            }
-        }
-        writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
-        writeln!(buf, "}})]").unwrap();
-        writeln!(buf, "").unwrap();
+    //     writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+    //     writeln!(buf, "import cetz.draw: *").unwrap();
+    //     writeln!(buf, "import cetz-plot: *").unwrap();
+    //     writeln!(buf, "chart.columnchart((").unwrap();
+    //     for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+    //         let allowed = if NaiveDate::from_ymd_opt(*y,1, 1).unwrap().leap_year() {
+    //                 366.0
+    //             } else {
+    //                 365.0
+    //             } * budget.total;
+    //         if y_stats.total > allowed {
+    //             writeln!(buf, "([{:04}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
+    //         } else {
+    //             writeln!(buf, "([{:04}], {}),", y, y_stats.total).unwrap();
+    //         }
+    //     }
+    //     writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+    //     writeln!(buf, "}})]").unwrap();
+    //     writeln!(buf, "").unwrap();
 
     writeln!(buf, "").unwrap();
     writeln!(buf, "= Data").unwrap();
