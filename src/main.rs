@@ -512,8 +512,18 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         }
     
         let average = total * 30.0 / total_days;
+        let percentage =  average*100.0/(budget.total*30.0);
         let color = if average > budget.total * 30.0 { "red" } else if average / (budget.total*30.0) > 0.75 { "orange" } else { "green" };
-        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ _{:.0}% of_ `{:.2}` _(budget)_])", average, color, average*100.0/(budget.total*30.0), budget.total * 30.0).unwrap();
+        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days])", average, color).unwrap();
+        writeln!(buf, "#align(center, [#text([_{:.0}% of_ `{:.2}` _(budget)_])", percentage, budget.total * 30.0).unwrap();
+        if percentage < 95.0 {
+            writeln!(buf, "#align(center, [You saved #text([`{:.2}`], fill: {})!])", total - budget.total * total_days, color).unwrap();
+        } else if percentage > 105.0 {
+            writeln!(buf, "#align(center, [You lost #text([`{:.2}`], fill: {})!])", total - budget.total * total_days, color).unwrap();
+        } else {
+            writeln!(buf, "#align(center, [You are on budget!])").unwrap();
+        }
+        
         writeln!(buf).unwrap();
         writeln!(buf, "#v(1em)").unwrap();
         writeln!(buf).unwrap();
