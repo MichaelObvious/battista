@@ -461,8 +461,10 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#import \"@preview/cetz-plot:0.1.1\"").unwrap();
     writeln!(buf, "").unwrap();
     writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
+    writeln!(buf, "#set page(numbering: \"1 of 1\")").unwrap();
     writeln!(buf, "#set text(12pt)").unwrap();
-    writeln!(buf, "#show heading: it => align(center, box(inset: (top: 2em, bottom: 0.5em),it))").unwrap();
+    writeln!(buf, "#show heading.where(level: 1): it => align(center, box(inset: (top: 2em, bottom: 0.5em),it))").unwrap();
+    writeln!(buf, "#set heading(numbering: \"1.\")").unwrap();
     writeln!(buf, "").unwrap();
 
     writeln!(buf, "#v(4em)").unwrap();
