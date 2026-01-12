@@ -1,8 +1,8 @@
 [package]
 name = "battista"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 
 [dependencies]
 chrono = "0.4"
-quick-xml = "0.38"
+quick-xml = "0.39"
