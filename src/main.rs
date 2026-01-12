@@ -730,6 +730,7 @@ fn prompt_with_default(prompt: &str, default: &str) -> String {
 }
 
 fn prompt_date_with_default(default: &str) -> String {
+    let default_date = NaiveDate::parse_from_str(&default, "%d/%m/%Y").unwrap();
     print!("Date [{}] (or 'today') > ", default);
     io::stdout().flush().unwrap();
     
@@ -745,6 +746,22 @@ fn prompt_date_with_default(default: &str) -> String {
         // Validate date format
         if NaiveDate::parse_from_str(&input, "%d/%m/%Y").is_ok() {
             input
+        } else if input.split('/').all(|x| x.parse::<u32>().is_ok()) {
+            let numbers = input.split('/').map(|x| x.parse::<u32>().unwrap()).collect::<Vec<_>>();
+            let corrected_input = match numbers.len() {
+                1 => format!("{:02}/{:02}/{}", input.parse::<u32>().unwrap(), default_date.month(), default_date.year()),
+                2 => format!("{:02}/{:02}/{}", numbers[0], numbers[1], default_date.year()),
+                _ =>  {
+                    println!("Invalid date format. Please use dd/mm/yyyy.");
+                    prompt_date_with_default(default)
+                },
+            };
+            if NaiveDate::parse_from_str(&corrected_input, "%d/%m/%Y").is_ok() {
+                corrected_input
+            } else {
+                println!("Invalid date format. Please use dd/mm/yyyy.");
+                prompt_date_with_default(default)
+            }
         } else {
             println!("Invalid date format. Please use dd/mm/yyyy.");
             prompt_date_with_default(default)
@@ -844,7 +861,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     let (budgets, mut transactions) = parse_raw_xml(file_path);
     
     // Determine default values from last transaction
-    let (mut default_date, mut default_category, default_payment_method) = if !transactions.is_empty() {
+    let (mut default_date, mut default_category, mut default_payment_method) = if !transactions.is_empty() {
         // Sort transactions to get the most recent
         let mut sorted_transactions = transactions.clone();
         sorted_transactions.sort_by(|a, b| {
@@ -908,9 +925,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         } else {
             prompt_with_default("Category", &default_category)
         };
-
-        default_category = category.clone();
-        default_date = date.clone();
         
         let amount = loop {
             print!("Amount > ");
@@ -941,6 +955,11 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         let mut note = String::new();
         io::stdin().read_line(&mut note).unwrap();
         let note = note.trim().to_string();
+
+
+        default_category = category.clone();
+        default_date = date.clone();
+        default_payment_method = payment_method.clone();
         
         // Create and add the transaction
         let new_transaction = RawTransaction {
