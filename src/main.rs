@@ -537,7 +537,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "chart.columnchart((").unwrap();
         for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
             let month_start = NaiveDate::from_ymd_opt(*y,*m, 1).unwrap();
-            let allowed = days_in_month(month_start) as f64 * budget.total;
+            let allowed = if today.month() == month_start.month() && today.year() == month_start.year() {
+                (today.signed_duration_since(month_start).num_days() + 1) as f64 * budget.total
+            } else {
+                days_in_month(month_start) as f64 * budget.total
+            };
             if m_stats.total > allowed {
                 writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
             } else {
@@ -546,7 +550,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         }
         writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
-        writeln!(buf, "").unwrap();
 
     // writeln!(buf, "").unwrap();
     // writeln!(buf, "= 5 Year Overview").unwrap();
