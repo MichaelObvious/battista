@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::HashMap, env, fmt::{Debug, write}, fs, io::{self, Write}, path::PathBuf, process::exit
+    collections::HashMap, env, fmt::{Debug}, fs, io::{self, Write}, path::PathBuf, process::exit
 };
 
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
