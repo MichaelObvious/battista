@@ -466,8 +466,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
     writeln!(buf, "#set page(width: 320mm, height: 200mm, numbering: \"1 of 1\")").unwrap();
     writeln!(buf, "#set text(12pt)").unwrap();
-    writeln!(buf, "#show heading.where(level: 3): it => align(center, box(inset: (top: 2em, bottom: 0.25em), text(it, 16pt)))").unwrap();
-    writeln!(buf, "#show heading.where(level: 2): it => align(center, box(inset: (top: 1em, bottom: 0.25em), text(it, 18pt)))").unwrap();
+    writeln!(buf, "#show heading.where(level: 3): it => pagebreak() + align(center, box(inset: (top: 2em, bottom: 0.25em), text(it, 16pt)))").unwrap();
+    writeln!(buf, "#show heading.where(level: 2): it => pagebreak() + align(center, box(inset: (top: 1em, bottom: 0.25em), text(it, 18pt)))").unwrap();
     writeln!(buf, "#show heading.where(level: 1): it => pagebreak() + align(center, box(inset: (top: 2em, bottom: 0.5em), text(it, 24pt)))").unwrap();
     writeln!(buf, "#set heading(numbering: \"1.\")").unwrap();
     writeln!(buf, "").unwrap();
