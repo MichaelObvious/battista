@@ -474,7 +474,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
 
     writeln!(buf, "#v(1fr)").unwrap();
     writeln!(buf, "#align(center, text([*Spending report from* `{}`], 28pt))", original_path.display()).unwrap();
-    writeln!(buf, "#align(center, text([January 5, 2026], 20pt))").unwrap();
+    writeln!(buf, "#align(center, text([{}], 20pt))", today.format("%B %-d, %Y")).unwrap();
     writeln!(buf, "#v(1.25fr)").unwrap();
     writeln!(buf, "#align(center, link(\"https://www.github.com/MichaelObvious/battista\", text([`battista {}`], 16pt)))", env!("CARGO_PKG_VERSION")).unwrap();
     writeln!(buf, "").unwrap();
