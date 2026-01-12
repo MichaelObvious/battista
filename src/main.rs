@@ -516,12 +516,12 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     
         let average = total * 30.0 / total_days;
         let percentage =  average*100.0/(budget.total*30.0);
-        let color = if percentage > 105.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
+        let color = if percentage > 100.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
         write!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.2}` _(budget)_\\ ", percentage, budget.total * 30.0).unwrap();
         if percentage < 95.0 {
-            writeln!(buf, "#text(8pt, [You saved #text([`{:.2}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
-        } else if percentage > 105.0 {
+            writeln!(buf, "#text(8pt, [You saved #text([`{:.2}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
+        } else if percentage > 100.0 {
             writeln!(buf, "#text(8pt, [You lost #text([`{:.2}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
         } else {
             writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
