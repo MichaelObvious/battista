@@ -1,5 +1,7 @@
 <budget category="Grocery" amount="50" duration="30"/>
 <budget category="Transportation" amount="10" duration="30"/>
+<transaction amount="100" category="Sas" date="12/01/2026" payment-method="Card">
+<transaction amount="344.98" category="Shopping" date="12/01/2026" payment-method="Bank" note="That Cool SHopping center">
 <transaction amount="15" category="Miscellaneous" date="16/12/2025" payment-method="Bank">
 <transaction amount="50" category="Grocery" date="14/12/2025" payment-method="Bank">
 <transaction amount="20" category="Transportation" date="13/12/2025" payment-method="Credit Card">

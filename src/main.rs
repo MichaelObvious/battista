@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, env, fmt::Debug, fs, io::Write, path::PathBuf, process::exit
+    collections::HashMap, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit
 };
 
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
@@ -104,6 +104,7 @@ impl TempStats {
 
 #[derive(Debug, Default)]
 struct StatsCollection {
+    #[allow(unused)]
     yearly: Vec<(i32, Stats)>,         // year
     monthly: Vec<((i32, u32), Stats)>, // year, month
     last_n_days: HashMap<u64, Stats>
@@ -153,6 +154,7 @@ impl TempStatsCollection {
 //     }
 // }
 
+#[allow(dead_code)]
 fn moving_average(xs: Vec<f64>, window: isize) -> Vec<f64> {
     let mut average = Vec::new();
 
@@ -513,15 +515,15 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     
         let average = total * 30.0 / total_days;
         let percentage =  average*100.0/(budget.total*30.0);
-        let color = if average > budget.total * 30.0 { "red" } else if average / (budget.total*30.0) > 0.75 { "orange" } else { "green" };
-        writeln!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days])", average, color).unwrap();
-        writeln!(buf, "#align(center, [#text([_{:.0}% of_ `{:.2}` _(budget)_])", percentage, budget.total * 30.0).unwrap();
+        let color = if percentage > 105.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
+        write!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
+        write!(buf, "_{:.0}% of_ `{:.2}` _(budget)_\\ ", percentage, budget.total * 30.0).unwrap();
         if percentage < 95.0 {
-            writeln!(buf, "#align(center, [You saved #text([`{:.2}`], fill: {})!])", total - budget.total * total_days, color).unwrap();
+            writeln!(buf, "#text(8pt, [You saved #text([`{:.2}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
         } else if percentage > 105.0 {
-            writeln!(buf, "#align(center, [You lost #text([`{:.2}`], fill: {})!])", total - budget.total * total_days, color).unwrap();
+            writeln!(buf, "#text(8pt, [You lost #text([`{:.2}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
         } else {
-            writeln!(buf, "#align(center, [You are on budget!])").unwrap();
+            writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
         }
         
         writeln!(buf).unwrap();
@@ -601,6 +603,371 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
 }
 
 
+#[derive(Debug, Clone)]
+struct RawBudget {
+    category: Option<String>,
+    amount: String,  // Keep as string for exact preservation
+    duration: String,
+}
+
+#[derive(Debug, Clone)]
+struct RawTransaction {
+    amount: String,
+    category: String,
+    date: String,
+    payment_method: String,
+    note: String,
+}
+
+fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
+    let content = fs::read_to_string(file_path).unwrap_or_default();
+    let mut reader = Reader::from_str(&content);
+    reader.config_mut().trim_text(true);
+    
+    let mut budgets = Vec::new();
+    let mut transactions = Vec::new();
+    
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                match e.name().as_ref() {
+                    b"budget" => {
+                        let mut category = None;
+                        let mut amount = None;
+                        let mut duration = None;
+                        
+                        for attr in e.attributes() {
+                            let attr = attr.unwrap();
+                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
+                            let value = String::from_utf8_lossy(&attr.value).to_string();
+                            
+                            match key.as_str() {
+                                "category" => category = Some(value),
+                                "amount" => amount = Some(value),
+                                "duration" => duration = Some(value),
+                                _ => {}
+                            }
+                        }
+                        
+                        if let (Some(amount), Some(duration)) = (amount, duration) {
+                            budgets.push(RawBudget {
+                                category,
+                                amount,
+                                duration,
+                            });
+                        }
+                    }
+                    b"transaction" => {
+                        let mut amount = None;
+                        let mut category = None;
+                        let mut date = None;
+                        let mut payment_method = None;
+                        let mut note = None;
+                        
+                        for attr in e.attributes() {
+                            let attr = attr.unwrap();
+                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
+                            let value = String::from_utf8_lossy(&attr.value).to_string();
+                            
+                            match key.as_str() {
+                                "amount" => amount = Some(value),
+                                "category" => category = Some(value),
+                                "date" => date = Some(value),
+                                "payment-method" => payment_method = Some(value),
+                                "note" => note = Some(value),
+                                _ => {}
+                            }
+                        }
+                        
+                        if let (Some(amount), Some(category), Some(date), Some(payment_method)) = 
+                            (amount, category, date, payment_method) {
+                            transactions.push(RawTransaction {
+                                amount,
+                                category,
+                                date,
+                                payment_method,
+                                note: note.unwrap_or_default(),
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => {
+                eprintln!("Error parsing XML: {}", e);
+                break;
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    
+    (budgets, transactions)
+}
+
+fn prompt_with_default(prompt: &str, default: &str) -> String {
+    print!("{} [{}] > ", prompt, default);
+    io::stdout().flush().unwrap();
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_string();
+    
+    if input.is_empty() {
+        default.to_string()
+    } else {
+        input
+    }
+}
+
+fn prompt_date_with_default(default: &str) -> String {
+    print!("Date [{}] (or 'today') > ", default);
+    io::stdout().flush().unwrap();
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_string();
+    
+    if input.is_empty() {
+        default.to_string()
+    } else if input.to_lowercase() == "today" {
+        Local::now().date_naive().format("%d/%m/%Y").to_string()
+    } else {
+        // Validate date format
+        if NaiveDate::parse_from_str(&input, "%d/%m/%Y").is_ok() {
+            input
+        } else {
+            println!("Invalid date format. Please use dd/mm/yyyy.");
+            prompt_date_with_default(default)
+        }
+    }
+}
+
+fn validate_amount(amount: &str) -> bool {
+    let amount_str = amount.trim();
+    if amount_str.is_empty() {
+        return false;
+    }
+    
+    // Try to parse as float
+    if let Ok(parsed) = amount_str.parse::<f64>() {
+        // Additional validation: check if it has reasonable precision
+        parsed.is_finite()
+    } else {
+        false
+    }
+}
+
+fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[RawTransaction]) -> std::io::Result<()> {
+    let mut content = String::new();
+    
+    // Sort budgets: total first (without category), then by amount descending
+    let mut sorted_budgets = budgets.to_vec();
+    sorted_budgets.sort_by(|a, b| {
+        match (&a.category, &b.category) {
+            (None, None) => {
+                // Both are total budgets, sort by amount
+                let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
+                let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
+                b_amount.partial_cmp(&a_amount).unwrap()
+            }
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(_), Some(_)) => {
+                // Both have categories, sort by amount
+                let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
+                let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
+                b_amount.partial_cmp(&a_amount).unwrap()
+            }
+        }
+    });
+    
+    // Write budget lines
+    for budget in &sorted_budgets {
+        if let Some(ref category) = budget.category {
+            content.push_str(&format!(
+                "<budget category=\"{}\" amount=\"{}\" duration=\"{}\"/>\n",
+                category, budget.amount, budget.duration
+            ));
+        } else {
+            content.push_str(&format!(
+                "<budget amount=\"{}\" duration=\"{}\"/>\n",
+                budget.amount, budget.duration
+            ));
+        }
+    }
+    
+    // Sort transactions by date descending (newest first)
+    let mut sorted_transactions = transactions.to_vec();
+    sorted_transactions.sort_by(|a, b| {
+        // Parse dates for comparison
+        let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y")
+            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+        let date_b = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y")
+            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+        date_b.cmp(&date_a) // Reverse order for descending
+    });
+    
+    // Write transaction lines
+    for transaction in &sorted_transactions {
+        if transaction.note.is_empty() {
+            content.push_str(&format!(
+                "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\">\n",
+                transaction.amount, transaction.category, transaction.date, transaction.payment_method
+            ));
+        } else {
+            content.push_str(&format!(
+                "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\">\n",
+                transaction.amount, transaction.category, transaction.date, transaction.payment_method, transaction.note
+            ));
+        }
+    }
+    
+    fs::write(file_path, content)
+}
+
+fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
+    fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
+
+    println!("=== Transaction Entry Mode ===\n");
+    
+    // Parse existing file using quick_xml
+    let (budgets, mut transactions) = parse_raw_xml(file_path);
+    
+    // Determine default values from last transaction
+    let (mut default_date, mut default_category, default_payment_method) = if !transactions.is_empty() {
+        // Sort transactions to get the most recent
+        let mut sorted_transactions = transactions.clone();
+        sorted_transactions.sort_by(|a, b| {
+            let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y")
+                .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+            let date_b = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y")
+                .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+            date_b.cmp(&date_a) // Get most recent
+        });
+        
+        let last = &sorted_transactions[0];
+        (
+            last.date.clone(),
+            last.category.clone(),
+            last.payment_method.clone()
+        )
+    } else {
+        // No transactions yet, use today's date and empty strings
+        (
+            Local::now().date_naive().format("%d/%m/%Y").to_string(),
+            String::new(),
+            String::new()
+        )
+    };
+    
+    // Get list of existing categories for reference
+    let existing_categories: Vec<String> = transactions.iter()
+        .map(|t| t.category.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    if !existing_categories.is_empty() {
+        println!("Existing categories: {}.", existing_categories.join(", "));
+    }
+    
+    // Show existing budget categories
+    let budget_categories: Vec<&str> = budgets.iter()
+        .filter_map(|b| b.category.as_ref().map(|s| s.as_str()))
+        .collect();
+    
+    if !budget_categories.is_empty() {
+        println!("Budget categories: {}.", budget_categories.join(", "));
+    }
+    
+    let mut loop_count = 0;
+    
+    loop {
+        loop_count += 1;
+        println!("\n--- Transaction #{} ---", loop_count);
+        
+        // Collect transaction details
+        let date = prompt_date_with_default(&default_date);
+        
+        let category = if default_category.is_empty() {
+            print!("Category > ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        } else {
+            prompt_with_default("Category", &default_category)
+        };
+
+        default_category = category.clone();
+        default_date = date.clone();
+        
+        let amount = loop {
+            print!("Amount > ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let amount_str = input.trim();
+            
+            if validate_amount(amount_str) {
+                break amount_str.to_string();
+            } else {
+                println!("Please enter a valid amount (e.g., 15.50)");
+            }
+        };
+        
+        let payment_method = if default_payment_method.is_empty() {
+            print!("Payment Method > ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        } else {
+            prompt_with_default("Payment Method", &default_payment_method)
+        };
+        
+        print!("Note [optional] > ");
+        io::stdout().flush().unwrap();
+        let mut note = String::new();
+        io::stdin().read_line(&mut note).unwrap();
+        let note = note.trim().to_string();
+        
+        // Create and add the transaction
+        let new_transaction = RawTransaction {
+            amount,
+            category: category.clone(),
+            date: date.clone(),
+            payment_method: payment_method.clone(),
+            note,
+        };
+        
+        transactions.push(new_transaction);
+        
+        println!("✓ Transaction added!");
+        
+        // Ask if user wants to continue
+        print!("Add another transaction? (y/n) > ");
+        io::stdout().flush().unwrap();
+        let mut response = String::new();
+        io::stdin().read_line(&mut response).unwrap();
+        
+        if response.trim().to_lowercase() != "y" {
+            break;
+        }
+    }
+    
+    // Write updated XML back to file
+    write_xml_file(file_path, &budgets, &transactions)?;
+    
+    println!("Saved {} transaction(s) to {}", loop_count, file_path.display());
+    
+    Ok(())
+}
+
+// Update the main function to use the new function
 fn main() {
     let (path, add) = get_options();
 
@@ -614,7 +981,28 @@ fn main() {
     let path = path.unwrap();
 
     if add {
-
+        // Call the interactive transaction addition function
+        match add_transactions_interactive(&path) {
+            Ok(_) => {
+                println!("[INFO] Transaction addition completed.");
+                
+                // After adding transactions, generate a new report
+                let (transactions, budget) = parse_file(&path);
+                
+                if transactions.is_empty() {
+                    println!("[INFO] No transactions found after addition. Exiting...");
+                    return;
+                }
+                
+                let stats = get_stats(&transactions);
+                let mut out_path = path.clone();
+                out_path.set_extension("typ");
+                write_typ_report(&out_path, &stats, &budget, &path);
+                println!("Updated report saved in `{}`.", out_path.display());
+            }
+            Err(e) => eprintln!("[ERROR] Failed to add transactions: {}", e),
+        }
+        return;
     }
 
     let (transactions, budget) = parse_file(&path);
@@ -625,10 +1013,42 @@ fn main() {
     }
 
     let stats = get_stats(&transactions);
-    // print_stats(&stats);
-
+    
     let mut out_path = path.clone();
     out_path.set_extension("typ");
     write_typ_report(&out_path, &stats, &budget, &path);
     println!("Detailed report saved in `{}`.", out_path.display());
 }
+
+
+// fn main() {
+//     let (path, add) = get_options();
+
+//     if path.is_none() {
+//         eprintln!("[ERROR] No file provided.");
+//         print_usage();
+//         return;
+//     }
+
+//     assert!(path.is_some(), "Rust has a problem here.");
+//     let path = path.unwrap();
+
+//     if add {
+
+//     }
+
+//     let (transactions, budget) = parse_file(&path);
+
+//     if transactions.is_empty() {
+//         println!("[INFO] Provided file has no transactions. Exiting...");
+//         return;
+//     }
+
+//     let stats = get_stats(&transactions);
+//     // print_stats(&stats);
+
+//     let mut out_path = path.clone();
+//     out_path.set_extension("typ");
+//     write_typ_report(&out_path, &stats, &budget, &path);
+//     println!("Detailed report saved in `{}`.", out_path.display());
+// }
