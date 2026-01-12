@@ -1,5 +1,6 @@
+use core::fmt;
 use std::{
-    collections::HashMap, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit
+    collections::HashMap, env, fmt::{Debug, write}, fs, io::{self, Write}, path::PathBuf, process::exit
 };
 
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
@@ -619,6 +620,12 @@ struct RawTransaction {
     note: String,
 }
 
+impl fmt::Display for RawTransaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[TRANSACTION; {}; {}; {}; {}; `{}`]", self.date, self.category, self.amount, self.payment_method, self.note)
+    }
+}
+
 fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let mut reader = Reader::from_str(&content);
@@ -944,8 +951,8 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             note,
         };
         
+        println!("{}", new_transaction);
         transactions.push(new_transaction);
-        
         println!("✓ Transaction added!");
         
         // Ask if user wants to continue
@@ -954,7 +961,8 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         let mut response = String::new();
         io::stdin().read_line(&mut response).unwrap();
         
-        if response.trim().to_lowercase() != "y" {
+        let continue_condition = response.trim().to_lowercase().starts_with("y") || response.trim().is_empty();
+        if !continue_condition {
             break;
         }
     }
