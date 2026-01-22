@@ -401,11 +401,11 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
         writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Total*], [*Allowed spending*],").unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         for (category, amount) in stats.by_category.iter() {
-            write!(buf, "    [{}], align(right, [`{:.2}`]), align(right, [`{:.2}%`]),", category, amount, (*amount / stats.total) * 100.0).unwrap();
+            write!(buf, "    [{}], align(right, [`{:.2}`]), align(right, [`{:.0}%`]),", category, amount, (*amount / stats.total) * 100.0).unwrap();
             let allowed_amount = if let Some(allowed_amount) = budget.per_category.get(category) {
                 if budget.total*n_days as f64 > stats.total {
                     let allowed = allowed_amount*n_days as f64 - *amount;
-                    (format!("{:.2}", allowed), if allowed >= 0.0  {
+                    (format!("{:.0}", allowed), if allowed >= 0.0  {
                         if allowed / allowed_amount >= 0.25 {
                             "green"
                         } else {
@@ -427,7 +427,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         let allowed_amount =if budget.total > 0.0 {
                 let allowed = budget.total*n_days as f64 - stats.total;
-                (format!("{:.2}", allowed), if allowed >= 0.0  {
+                (format!("{:.0}", allowed), if allowed >= 0.0  {
                     if allowed / budget.total >= 0.25 {
                         "green"
                     } else {
@@ -440,7 +440,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
             } else {
                 (String::default(), "black")
             };
-        writeln!(buf, "    [*Total*], align(right, [`{:.2}`]), align(right, [`{:.2}%`]), align(right, text([`{}`], fill: {})), ", stats.total as f64, 100.0, allowed_amount.0, allowed_amount.1).unwrap();
+        writeln!(buf, "    [*Total*], align(right, [`{:.2}`]), align(right, [`{:.0}%`]), align(right, text([`{}`], fill: {})), ", stats.total as f64, 100.0, allowed_amount.0, allowed_amount.1).unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         writeln!(buf, "))").unwrap();
         writeln!(buf, "").unwrap();
