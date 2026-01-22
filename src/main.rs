@@ -300,7 +300,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, Budget) {
                     }).collect::<HashMap<_,_>>();
 
                     transactions.push(Transaction {
-                        category: attributes.get("category").unwrap().trim().to_owned(),
+                        category: attributes.get("category").unwrap_or(&String::default()).trim().to_owned(),
                         date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
                         value: parse_amount_as_cents(attributes.get("amount").unwrap()),
                         note: if attributes.contains_key("note") { attributes.get("note").unwrap().to_owned() } else { String::default() },
@@ -493,12 +493,16 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    let mut total_allocated = 0.0;
     for category in budget_categories {
-        writeln!(buf, "[{}], [`{:.2}`], [`{:.0}%`],", category, budget.per_category.get(category).unwrap() * 30.0, (budget.per_category.get(category).unwrap() / budget.total)*100.0).unwrap();
-    writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, budget.per_category.get(category).unwrap() * 30.0, (budget.per_category.get(category).unwrap() / budget.total)*100.0).unwrap();
+        total_allocated += budget.per_category.get(category).unwrap();
+        writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[*Total*], [`{:.2}`], ", budget.total * 30.0).unwrap();
+    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * 100.0 / budget.total).unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "[*Total*], [`{:.0}`], ", budget.total * 30.0).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
 
@@ -517,12 +521,12 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * 30.0 / total_days;
         let percentage =  average*100.0/(budget.total*30.0);
         let color = if percentage > 100.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
-        write!(buf, "#align(center, [#text([`{:.2}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
-        write!(buf, "_{:.0}% of_ `{:.2}` _(budget)_\\ ", percentage, budget.total * 30.0).unwrap();
+        write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
+        write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, budget.total * 30.0).unwrap();
         if percentage < 95.0 {
-            writeln!(buf, "#text(8pt, [You saved #text([`{:.2}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
+            writeln!(buf, "#text(8pt, [You saved #text([`{:.0}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
         } else if percentage > 100.0 {
-            writeln!(buf, "#text(8pt, [You lost #text([`{:.2}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
+            writeln!(buf, "#text(8pt, [You lost #text([`{:.0}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
         } else {
             writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
         }
