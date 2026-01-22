@@ -347,7 +347,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
 
         for i in LAST_N_DAYS.iter() {
-            if (today - transaction.date).num_days() <= *i as i64 {
+            if (today - transaction.date).num_days() < *i as i64 {
                 if !tsc.last_n_days.contains_key(i) {
                     tsc.last_n_days.insert(*i, TempStats::default());
                 }
@@ -909,6 +909,16 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     if !budget_categories.is_empty() {
         println!("Budget categories: {}.", budget_categories.join(", "));
     }
+
+    let last_date = transactions.iter().map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap()).max().unwrap();
+    let last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).collect::<Vec<_>>();
+
+    if !last_transactions.is_empty() {
+        println!("Last transactions:");
+        for t in last_transactions.iter() {
+            println!(" - {}", t);
+        }
+    }
     
     let mut loop_count = 0;
     
@@ -1013,26 +1023,9 @@ fn main() {
     if add {
         // Call the interactive transaction addition function
         match add_transactions_interactive(&path) {
-            Ok(_) => {
-                println!("[INFO] Transaction addition completed.");
-                
-                // After adding transactions, generate a new report
-                let (transactions, budget) = parse_file(&path);
-                
-                if transactions.is_empty() {
-                    println!("[INFO] No transactions found after addition. Exiting...");
-                    return;
-                }
-                
-                let stats = get_stats(&transactions);
-                let mut out_path = path.clone();
-                out_path.set_extension("typ");
-                write_typ_report(&out_path, &stats, &budget, &path);
-                println!("Updated report saved in `{}`.", out_path.display());
-            }
+            Ok(_) => println!("[INFO] Transaction addition completed."),
             Err(e) => eprintln!("[ERROR] Failed to add transactions: {}", e),
         }
-        return;
     }
 
     let (transactions, budget) = parse_file(&path);
