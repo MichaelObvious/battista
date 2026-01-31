@@ -1,9 +1,9 @@
 use core::fmt;
 use std::{
-    collections::HashMap, env, fmt::{Debug}, fs, io::{self, Write}, path::PathBuf, process::exit
+    collections::HashMap, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit
 };
 
-use chrono::{Datelike, Local, NaiveDate, TimeDelta};
+use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
 use quick_xml::{Reader, events::Event};
 
 const LAST_N_DAYS: [u64; 4] = [7, 14, 30, 365];
@@ -108,6 +108,7 @@ struct StatsCollection {
     #[allow(unused)]
     yearly: Vec<(i32, Stats)>,         // year
     monthly: Vec<((i32, u32), Stats)>, // year, month
+    weekly: Vec<(IsoWeek, Stats)>, // year, week
     last_n_days: HashMap<u64, Stats>
 }
 
@@ -115,6 +116,7 @@ struct StatsCollection {
 struct TempStatsCollection {
     yearly: HashMap<i32, TempStats>,         // year
     monthly: HashMap<(i32, u32), TempStats>, // year, month
+    weekly: HashMap<IsoWeek, TempStats>, // year, week
     last_n_days: HashMap<u64, TempStats>
 }
 
@@ -132,9 +134,16 @@ impl TempStatsCollection {
             .map(|(a, b)| (a, b.into_stats()))
             .collect::<Vec<_>>();
         monthly.sort_by(|x, y| (x.0 .0 * 12 + x.0 .1 as i32).cmp(&(y.0 .0 * 12 + y.0 .1 as i32)));
+        let mut weekly = self
+            .weekly
+            .into_iter()
+            .map(|(a, b)| (a, b.into_stats()))
+            .collect::<Vec<_>>();
+        weekly.sort_by(|x, y| (x.0).cmp(&y.0));
         StatsCollection {
             yearly: yearly,
             monthly: monthly,
+            weekly: weekly,
             last_n_days: self.last_n_days.into_iter().map(|(x,y)| (x, y.into_stats())).collect(),
         }
     }
@@ -326,11 +335,15 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, Budget) {
 fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut tsc = TempStatsCollection::default();
     let today = Local::now().date_naive();
+    let mut first_date = today;
 
     let mut start = today;
     for transaction in transactions.iter() {
+        first_date = first_date.min(transaction.date);
+
         let year = year_as_i32(transaction.date.year_ce());
         let month = transaction.date.month0() + 1;
+        let week = transaction.date.iso_week();
         start = start.min(transaction.date);
 
         // Yearly
@@ -345,6 +358,10 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
             tsc.monthly.insert(month_idx, TempStats::default());
         }
         tsc.monthly.get_mut(&month_idx).unwrap().update(transaction);
+        if !tsc.weekly.contains_key(&week) {
+            tsc.weekly.insert(week, TempStats::default());
+        }
+        tsc.weekly.get_mut(&week).unwrap().update(transaction);
 
         for i in LAST_N_DAYS.iter() {
             if (today - transaction.date).num_days() < *i as i64 {
@@ -353,6 +370,30 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
                 }
                 tsc.last_n_days.get_mut(&i).unwrap().update(transaction);
             }
+        }
+    }
+
+    {
+        let mut current = first_date;
+        while current <= today {
+            let year = current.year();
+            let month = current.month();
+            let month_idx = (year, month);
+            let week = current.iso_week();
+
+            if !tsc.yearly.contains_key(&year) {
+                tsc.yearly.insert(year, TempStats::default());
+            }
+            
+            if !tsc.monthly.contains_key(&month_idx) {
+                tsc.monthly.insert(month_idx, TempStats::default());
+            }
+
+            if !tsc.weekly.contains_key(&week) {
+                tsc.weekly.insert(week, TempStats::default());
+            }
+
+            current += TimeDelta::days(7);
         }
     }
 
@@ -382,6 +423,14 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let days2 = (period_end - period_start).num_days();
         // println!("{} {} {} {} {} {}", month_start, month_end, period_start, period_end, days, days2);
         let ndays = days.min(days2);
+        assert!(ndays > 0);
+        v.calc_averages(ndays as u64);
+    }
+
+    for (week, v) in tsc.weekly.iter_mut() {
+        let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
+        let week_end = today.min(week_start + TimeDelta::days(7));
+        let ndays = (week_end - week_start).num_days();
         assert!(ndays > 0);
         v.calc_averages(ndays as u64);
     }
@@ -552,7 +601,58 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "([{:02}/{}], {}),", m, y%100, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (auto, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (14, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "}})]").unwrap();
+
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "= 12 Weeks Overview").unwrap();
+    writeln!(buf, "").unwrap();
+        let mut total = 0.0;
+        let total_days = 7.0*12.0;
+        for (_, m_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+            total += m_stats.total;
+        }
+    
+        let average = total * 7.0 / total_days;
+        let percentage =  average*100.0/(budget.total*7.0);
+        let color = if percentage > 100.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
+        write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 7 days\\ ", average, color).unwrap();
+        write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, budget.total * 7.0).unwrap();
+        if percentage < 95.0 {
+            writeln!(buf, "#text(8pt, [You saved #text([`{:.0}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
+        } else if percentage > 100.0 {
+            writeln!(buf, "#text(8pt, [You lost #text([`{:.0}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
+        } else {
+            writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
+        }
+        
+        writeln!(buf).unwrap();
+        writeln!(buf, "#v(1em)").unwrap();
+        writeln!(buf).unwrap();
+            
+        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+        writeln!(buf, "import cetz.draw: *").unwrap();
+        writeln!(buf, "import cetz-plot: *").unwrap();
+        writeln!(buf, "chart.columnchart((").unwrap();
+        for (week, m_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+            let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
+            let allowed = if today.iso_week() == *week {
+                (today.signed_duration_since(week_start).num_days() + 1) as f64 * budget.total
+            } else {
+                7.0 * budget.total
+            };
+            let label = if (week_start - TimeDelta::days(7)).month() != week_start.month() {
+                format!("#underline[{:02}/{:02}]", week_start.day(), week_start.month())
+            } else {
+                format!("{:02}/{:02}", week_start.day(), week_start.month())
+            };
+            if m_stats.total > allowed {
+                writeln!(buf, "([{}], ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
+            } else {
+                writeln!(buf, "([{}], {}),", label, m_stats.total).unwrap();
+            }
+        }
+        writeln!(buf, "), mode: \"stacked\", size: (14, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     // writeln!(buf, "").unwrap();
