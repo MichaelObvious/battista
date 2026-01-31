@@ -961,9 +961,6 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
 
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
-
-    println!("=== Transaction Entry Mode ===\n");
-    
     // Parse existing file using quick_xml
     let (budgets, mut transactions) = parse_raw_xml(file_path);
     
@@ -1024,12 +1021,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         }
     }
     
-    let mut loop_count = 0;
-    
-    loop {
-        loop_count += 1;
-        println!("\n--- Transaction #{} ---", loop_count);
-        
+    loop {    
         // Collect transaction details
         let date = prompt_date_with_default(&default_date);
         
@@ -1089,9 +1081,11 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         
         println!("{}", new_transaction);
         transactions.push(new_transaction);
-        println!("✓ Transaction added!");
-        
-        // Ask if user wants to continue
+        write_xml_file(file_path, &budgets, &transactions)?;
+        println!("Transaction added.");
+
+
+
         print!("Add another transaction? (y/n) > ");
         io::stdout().flush().unwrap();
         let mut response = String::new();
@@ -1102,11 +1096,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             break;
         }
     }
-    
-    // Write updated XML back to file
-    write_xml_file(file_path, &budgets, &transactions)?;
-    
-    println!("Saved {} transaction(s) to {}", loop_count, file_path.display());
     
     Ok(())
 }
