@@ -403,7 +403,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let period_end = (NaiveDate::from_ymd_opt(*k + 1, 1, 1).unwrap() - TimeDelta::days(1))
             .min(today + TimeDelta::days(1));
         let days = days_in_year(year_start);
-        let days2 = (period_end - period_start).num_days();
+        let days2 = (period_end - period_start).num_days()+1;
         // println!("{} {} {} {} {}", year_start, period_start, period_end, days, days2);
         let ndays = days.min(days2);
         assert!(ndays > 0);
@@ -420,7 +420,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let period_start = month_start.max(start);
         let period_end = (month_end + TimeDelta::days(1)).min(today + TimeDelta::days(1));
         let days = days_in_month(month_start);
-        let days2 = (period_end - period_start).num_days();
+        let days2 = (period_end - period_start).num_days()+1;
         // println!("{} {} {} {} {} {}", month_start, month_end, period_start, period_end, days, days2);
         let ndays = days.min(days2);
         assert!(ndays > 0);
@@ -430,7 +430,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     for (week, v) in tsc.weekly.iter_mut() {
         let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
         let week_end = today.min(week_start + TimeDelta::days(7));
-        let ndays = (week_end - week_start).num_days();
+        let ndays = (week_end - week_start).num_days()+1;
         assert!(ndays > 0);
         v.calc_averages(ndays as u64);
     }
