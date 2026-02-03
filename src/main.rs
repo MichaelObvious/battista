@@ -557,6 +557,55 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
 
 
     writeln!(buf, "").unwrap();
+    writeln!(buf, "= 5 Year Overview").unwrap();
+    writeln!(buf, "").unwrap();
+        let mut total = 0.0;
+        let mut total_days = 0.0;
+        for (y, m_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            let year_start = NaiveDate::from_ymd_opt(*y,1, 1).unwrap();
+            total += m_stats.total;
+            total_days += 365.0 + if year_start.leap_year() { 1.0 } else { 0.0 };
+        }
+    
+        let average = total * 365.0 / total_days;
+        let percentage =  average*100.0/(budget.total*365.0);
+        let color = if percentage > 100.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
+        write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
+        write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, budget.total * 365.0).unwrap();
+        if percentage < 95.0 {
+            writeln!(buf, "#text(8pt, [You saved #text([`{:.0}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
+        } else if percentage > 100.0 {
+            writeln!(buf, "#text(8pt, [You lost #text([`{:.0}`], fill: {})!])])", total - budget.total * total_days, color).unwrap();
+        } else {
+            writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
+        }
+        
+        writeln!(buf).unwrap();
+        writeln!(buf, "#v(1em)").unwrap();
+        writeln!(buf).unwrap();
+            
+        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+        writeln!(buf, "import cetz.draw: *").unwrap();
+        writeln!(buf, "import cetz-plot: *").unwrap();
+        writeln!(buf, "chart.columnchart((").unwrap();
+        for (y, m_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            let year_start = NaiveDate::from_ymd_opt(*y,1, 1).unwrap();
+            let allowed = if today.year() == year_start.year() {
+                (today.signed_duration_since(year_start).num_days() + 1) as f64 * budget.total
+            } else {
+                (365.0 + if year_start.leap_year() { 1.0 } else { 0.0 }) as f64 * budget.total
+            };
+            if m_stats.total > allowed {
+                writeln!(buf, "([{}], ({}, {})),", y, allowed, m_stats.total - allowed).unwrap();
+            } else {
+                writeln!(buf, "([{}], {}),", y, m_stats.total).unwrap();
+            }
+        }
+        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "}})]").unwrap();
+
+
+    writeln!(buf, "").unwrap();
     writeln!(buf, "= 12 Month Overview").unwrap();
     writeln!(buf, "").unwrap();
         let mut total = 0.0;
@@ -647,12 +696,12 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 format!("{:02}/{:02}", week_start.day(), week_start.month())
             };
             if m_stats.total > allowed {
-                writeln!(buf, "([{}], ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
+                writeln!(buf, "(text(10pt, [{}]), ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
             } else {
-                writeln!(buf, "([{}], {}),", label, m_stats.total).unwrap();
+                writeln!(buf, "(text(10pt,[{}]), {}),", label, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (14, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (12, 7), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     // writeln!(buf, "").unwrap();
