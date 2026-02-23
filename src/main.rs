@@ -393,7 +393,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
                 tsc.weekly.insert(week, TempStats::default());
             }
 
-            current += TimeDelta::days(7);
+            current += TimeDelta::days(1);
         }
     }
 
