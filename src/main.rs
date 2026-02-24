@@ -325,8 +325,13 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, Budget) {
         }
     }
 
+    let budget_sum = budget.per_category.values().sum();
     if budget.total == 0.0 {
-        budget.total = budget.per_category.values().sum();
+        budget.total = budget_sum;
+    }
+    if budget_sum > budget.total {
+        eprintln!("[ERROR]: The sum of the budget of the categories adds up to more than the general budget by {:.0}.", budget_sum - budget.total);
+        exit(1);
     }
 
     return (transactions, budget);
