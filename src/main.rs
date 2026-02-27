@@ -547,7 +547,6 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
 
 fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budget, original_path: &PathBuf) {
     let today = Local::now().date_naive();
-    println!("{:?}", stats);
 
     let mut buf = Vec::new();
     writeln!(buf, "#import \"@preview/cetz:0.3.2\"").unwrap();
