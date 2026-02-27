@@ -27,6 +27,9 @@ struct Transaction {
 
 #[derive(Debug, Default)]
 struct Stats {
+    start: NaiveDate,
+    #[allow(unused)]
+    end: NaiveDate,
     #[allow(unused)]
     per_day: f64,
     total: f64,
@@ -43,6 +46,8 @@ struct Stats {
 
 #[derive(Debug, Default)]
 struct TempStats {
+    start: NaiveDate,
+    end: NaiveDate,
     per_day: f64,
     total: i64,
     by_category: HashMap<Category, i64>,
@@ -71,6 +76,17 @@ impl TempStats {
         }
         *(self.by_note.get_mut(&e.note).unwrap()) += value;
 
+        if self.start == NaiveDate::default() {
+            self.start = e.date;
+        } else {
+            self.start = self.start.min(e.date);
+        }
+        if self.end == NaiveDate::default() {
+            self.end = e.date;
+        } else {
+            self.end = self.end.max(e.date);
+        }
+
         self.transaction_count += 1;
     }
 
@@ -88,6 +104,8 @@ impl TempStats {
         let mut by_note = self.by_note.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
         by_note.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         Stats {
+            start: self.start,
+            end: self.end,
             per_day: self.per_day,
             total: self.total as f64 / 100.0,
             by_category,
@@ -106,6 +124,9 @@ impl TempStats {
 #[derive(Debug, Default)]
 struct StatsCollection {
     #[allow(unused)]
+    start: NaiveDate,
+    #[allow(unused)]
+    end: NaiveDate,
     yearly: Vec<(i32, Stats)>,         // year
     monthly: Vec<((i32, u32), Stats)>, // year, month
     weekly: Vec<(IsoWeek, Stats)>, // year, week
@@ -114,6 +135,8 @@ struct StatsCollection {
 
 #[derive(Debug, Default)]
 struct TempStatsCollection {
+    start: NaiveDate,
+    end: NaiveDate,
     yearly: HashMap<i32, TempStats>,         // year
     monthly: HashMap<(i32, u32), TempStats>, // year, month
     weekly: HashMap<IsoWeek, TempStats>, // year, week
@@ -141,6 +164,8 @@ impl TempStatsCollection {
             .collect::<Vec<_>>();
         weekly.sort_by(|x, y| (x.0).cmp(&y.0));
         StatsCollection {
+            start: self.start,
+            end: self.end,
             yearly: yearly,
             monthly: monthly,
             weekly: weekly,
@@ -201,19 +226,24 @@ fn weighted_moving_average(xs: Vec<(f64, f64)>, window: isize) -> Vec<f64> {
     return average;
 }
 
+fn next_month(d: NaiveDate) -> NaiveDate {
+    let year = year_as_i32(d.year_ce());
+    let month = d.month0() + 1;
+    NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
+}
+
 fn days_in_month(d: NaiveDate) -> i64 {
     let year = year_as_i32(d.year_ce());
     let month = d.month0() + 1;
-    (NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
+    (next_month(d)
         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
     .num_days()
 }
 
 fn days_in_year(d: NaiveDate) -> i64 {
     let year = year_as_i32(d.year_ce());
-    let month = d.month0() + 1;
-    (NaiveDate::from_ymd_opt(year + 1, month, 1).unwrap()
-        - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
+    (NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
+        - NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
     .num_days()
 }
 
@@ -343,6 +373,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut first_date = today;
 
     let mut start = today;
+    let mut end = NaiveDate::from_ymd_opt(1, 1, 1).unwrap();
     for transaction in transactions.iter() {
         first_date = first_date.min(transaction.date);
 
@@ -350,6 +381,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let month = transaction.date.month0() + 1;
         let week = transaction.date.iso_week();
         start = start.min(transaction.date);
+        end = end.max(transaction.date);
 
         // Yearly
         if !tsc.yearly.contains_key(&year) {
@@ -377,6 +409,9 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
             }
         }
     }
+
+    tsc.start = start;
+    tsc.end = end;
 
     {
         let mut current = first_date;
@@ -512,6 +547,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
 
 fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budget, original_path: &PathBuf) {
     let today = Local::now().date_naive();
+    println!("{:?}", stats);
 
     let mut buf = Vec::new();
     writeln!(buf, "#import \"@preview/cetz:0.3.2\"").unwrap();
@@ -566,16 +602,27 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
         let mut total = 0.0;
         let mut total_days = 0.0;
-        for (y, m_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
-            let year_start = NaiveDate::from_ymd_opt(*y,1, 1).unwrap();
-            total += m_stats.total;
-            total_days += 365.0 + if year_start.leap_year() { 1.0 } else { 0.0 };
+        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            let year_start = if stats.start.year() == *y {
+                y_stats.start
+            } else {
+                NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
+            };
+            let d_total_days = if stats.start.year() == *y {
+                days_in_year(year_start) as f64 - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as f64
+            } else if stats.end.year() == *y && today.year() == *y {
+                days_in_year(year_start) as f64 - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as f64
+            } else {
+                days_in_year(year_start) as f64
+            };
+            total += y_stats.total;
+            total_days += d_total_days;
         }
     
         let average = total * 365.0 / total_days;
         let percentage =  average*100.0/(budget.total*365.0);
         let color = if percentage > 100.0 { "red" } else if percentage > 75.0 { "orange" } else { "green" };
-        write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
+        write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 365 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, budget.total * 365.0).unwrap();
         if percentage < 95.0 {
             writeln!(buf, "#text(8pt, [You saved #text([`{:.0}`], fill: {})!])])", budget.total * total_days - total, color).unwrap();
@@ -593,17 +640,23 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
-        for (y, m_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
-            let year_start = NaiveDate::from_ymd_opt(*y,1, 1).unwrap();
-            let allowed = if today.year() == year_start.year() {
-                (today.signed_duration_since(year_start).num_days() + 1) as f64 * budget.total
+        for (y, y_stats) in stats.yearly.iter().rev().zip(0..5).map(|x| x.0).rev() {
+            let year_start = if stats.start.year() == *y {
+                y_stats.start
             } else {
-                (365.0 + if year_start.leap_year() { 1.0 } else { 0.0 }) as f64 * budget.total
+                NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
             };
-            if m_stats.total > allowed {
-                writeln!(buf, "([{}], ({}, {})),", y, allowed, m_stats.total - allowed).unwrap();
+            let allowed = if stats.start.year() == *y {
+                days_in_year(year_start) as f64 - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as f64
+            } else if stats.end.year() == *y && today.year() == *y {
+                days_in_year(year_start) as f64 - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as f64
             } else {
-                writeln!(buf, "([{}], {}),", y, m_stats.total).unwrap();
+                days_in_year(year_start) as f64
+            } * budget.total;
+            if y_stats.total > allowed {
+                writeln!(buf, "([{}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
+            } else {
+                writeln!(buf, "([{}], {}),", y, y_stats.total).unwrap();
             }
         }
         writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
@@ -616,9 +669,20 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let mut total = 0.0;
         let mut total_days = 0.0;
         for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
-            let month_start = NaiveDate::from_ymd_opt(*y,*m, 1).unwrap();
+            let month_start = if stats.start.month() == *m && stats.start.year() == *y {
+                m_stats.start
+            } else {
+                NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
+            };
+            let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
+                days_in_month(month_start) as f64 - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as f64
+            } else if stats.end.year() == *y && stats.start.month() == *m && today.year() == *y && today.month() == *m {
+                days_in_month(month_start) as f64 - ((next_month(month_start) - today).num_days() - 1) as f64
+            } else {
+                days_in_month(month_start) as f64
+            };
             total += m_stats.total;
-            total_days += days_in_month(month_start) as f64;
+            total_days += d_total_days;
         }
     
         let average = total * 30.0 / total_days;
@@ -643,12 +707,18 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "import cetz-plot: *").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
         for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
-            let month_start = NaiveDate::from_ymd_opt(*y,*m, 1).unwrap();
-            let allowed = if today.month() == month_start.month() && today.year() == month_start.year() {
-                (today.signed_duration_since(month_start).num_days() + 1) as f64 * budget.total
+            let month_start = if stats.start.month() == *m && stats.start.year() == *y {
+                m_stats.start
             } else {
-                days_in_month(month_start) as f64 * budget.total
+                NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
             };
+            let allowed = if stats.start.year() == *y && stats.start.month() == *m {
+                days_in_month(month_start) as f64 - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as f64
+            } else if stats.end.year() == *y && stats.start.month() == *m && today.year() == *y && today.month() == *m {
+                days_in_month(month_start) as f64 - ((next_month(month_start) - today).num_days() - 1) as f64
+            } else {
+                days_in_month(month_start) as f64
+            } * budget.total;
             if m_stats.total > allowed {
                 writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
             } else {
