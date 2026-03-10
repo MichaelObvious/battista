@@ -495,7 +495,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
                 if budget.total*n_days as f64 > stats.total {
                     let allowed = allowed_amount*n_days as f64 - *amount;
                     (format!("{:.0}", allowed), format!("{:.0}%", (amount*100.0)/total_allowed), if allowed >= 0.0  {
-                        if allowed / total_allowed <= 0.75 {
+                        if allowed / total_allowed >= 0.25 {
                             "green"
                         } else {
                             "orange"
@@ -506,7 +506,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
                 } else {
                     let allowed = allowed_amount*n_days as f64 - *amount;
                     (String::default(), format!("{:.0}%", (amount*100.0)/total_allowed), if allowed >= 0.0  {
-                        if allowed / total_allowed <= 0.75 {
+                        if allowed / total_allowed >= 0.25 {
                             "green"
                         } else {
                             "orange"
