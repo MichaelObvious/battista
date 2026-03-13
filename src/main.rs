@@ -549,7 +549,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &Budget, 
             writeln!(buf, "").unwrap();
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
-            for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > 50.0).zip(0..10) {
+            for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > 50.0).zip(0..20) {
                 writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();
             }
             writeln!(buf, "))").unwrap();
