@@ -606,6 +606,39 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
 
+    writeln!(buf, "").unwrap();
+    {
+        writeln!(buf, "#pagebreak()").unwrap();
+
+        writeln!(buf, "#v(5em)").unwrap();
+        let excess_fraction = (stats.last_n_days.get(&30).unwrap().total - budget.total * 30.0)/(budget.total * 30.0);
+        let mut allowed_next_month = budget.total * 60.0 - stats.last_n_days.get(&30).unwrap().total;
+        let color = if allowed_next_month < budget.total * 30.0 * 0.80 { "red" } else if allowed_next_month < budget.total * 30.0 * 0.92 { "orange" } else { "black" };
+        if allowed_next_month < budget.total * 30.0 * 0.75 {
+            allowed_next_month = allowed_next_month.max(budget.total * 30.0 * 0.5 * (1.0/0.95));
+        }
+        if allowed_next_month < budget.total * 30.0 {
+            writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
+            let year_fraction = (1.0 - (stats.last_n_days.get(&365).unwrap().total - budget.total * 365.0)/(budget.total * 365.0)).max(0.5 / 0.95) * 0.95;
+            let month_fraction = allowed_next_month / (budget.total * 30.0) * 0.95;
+            let fraction = year_fraction.min(month_fraction);
+            writeln!(buf, "#align(center,text(fill: {color}, [_You have overspent in the last month (+{:.0}%)._]) + [\\ For the next month, we suggest the following budget.\\ (_{:.0}% of user set_)])", excess_fraction*100.0, fraction*100.0).unwrap();
+            writeln!(buf, "#v(1em)").unwrap();
+            writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
+            writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+            writeln!(buf, "[*Time interval*], [*Allowed amount*],").unwrap();
+            writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+            writeln!(buf, "[_Per month_], [`{:.0}`],", fraction * budget.total * 30.0).unwrap();
+            writeln!(buf, "[_Per week_], [`{:.0}`],", fraction * budget.total * 7.0).unwrap();
+            writeln!(buf, "[_Per day_], [`{:.0}`],", fraction * budget.total).unwrap();
+            writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+            writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+            writeln!(buf, "))").unwrap();
+            writeln!(buf, "]))").unwrap();
+        }
+    }
+    writeln!(buf, "").unwrap();
+    
 
     writeln!(buf, "").unwrap();
     writeln!(buf, "= 5 Year Overview").unwrap();
