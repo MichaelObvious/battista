@@ -639,7 +639,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             let recover_date = today + TimeDelta::days(recover_time_days as i64);
             writeln!(buf, "").unwrap();
             writeln!(buf, "#v(1em)").unwrap();
-            writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending by_\\ *{}* #h(1em) (in {:.0} days).])", recover_date.format("%B %-d, %Y"), recover_time_days).unwrap();
+            writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0} days).])", overspent_amount_last_year, color, recover_date.format("%B %-d, %Y"), recover_time_days).unwrap();
             writeln!(buf, "]))").unwrap();
 
         }
