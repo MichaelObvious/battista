@@ -480,7 +480,6 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     }).collect::<HashMap<_,_>>();
                     let pot_category = attributes.get("category");
                     if let Some(category) = pot_category {
-                        assert!(!budget.per_category.contains_key(category));
                         budget.add_category(category.to_owned(), NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(), attributes.get("amount").unwrap().parse::<f64>().unwrap(), attributes.get("duration").unwrap().parse::<f64>().unwrap());
                     } else {
                         budget.add_general(NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(), attributes.get("amount").unwrap().parse::<f64>().unwrap(), attributes.get("duration").unwrap().parse::<f64>().unwrap());
@@ -514,6 +513,9 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
 
 fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut tsc = TempStatsCollection::default();
+    for n in LAST_N_DAYS {
+        tsc.last_n_days.insert(n, TempStats::default());
+    }
     let today = Local::now().date_naive();
     let mut first_date = today;
 
