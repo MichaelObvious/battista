@@ -1043,6 +1043,7 @@ struct RawBudget {
     category: Option<String>,
     amount: String,  // Keep as string for exact preservation
     duration: String,
+    date: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1077,6 +1078,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                         let mut category = None;
                         let mut amount = None;
                         let mut duration = None;
+                        let mut date = None;
                         
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
@@ -1087,15 +1089,17 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                                 "category" => category = Some(value),
                                 "amount" => amount = Some(value),
                                 "duration" => duration = Some(value),
+                                "date" => date = Some(value),
                                 _ => {}
                             }
                         }
                         
-                        if let (Some(amount), Some(duration)) = (amount, duration) {
+                        if let (Some(amount), Some(duration), Some(date)) = (amount, duration, date) {
                             budgets.push(RawBudget {
                                 category,
                                 amount,
                                 duration,
+                                date,
                             });
                         }
                     }
@@ -1224,21 +1228,27 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
     // Sort budgets: total first (without category), then by amount descending
     let mut sorted_budgets = budgets.to_vec();
     sorted_budgets.sort_by(|a, b| {
-        match (&a.category, &b.category) {
-            (None, None) => {
-                // Both are total budgets, sort by amount
-                let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
-                let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
-                b_amount.partial_cmp(&a_amount).unwrap()
+        let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y").unwrap();
+        let date_b = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
+        if date_a == date_b {
+            match (&a.category, &b.category) {
+                (None, None) => {
+                    // Both are total budgets, sort by amount
+                    let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
+                    let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
+                    b_amount.partial_cmp(&a_amount).unwrap()
+                }
+                (None, Some(_)) => std::cmp::Ordering::Less,
+                (Some(_), None) => std::cmp::Ordering::Greater,
+                (Some(_), Some(_)) => {
+                    // Both have categories, sort by amount
+                    let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
+                    let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
+                    b_amount.partial_cmp(&a_amount).unwrap()
+                }
             }
-            (None, Some(_)) => std::cmp::Ordering::Less,
-            (Some(_), None) => std::cmp::Ordering::Greater,
-            (Some(_), Some(_)) => {
-                // Both have categories, sort by amount
-                let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
-                let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
-                b_amount.partial_cmp(&a_amount).unwrap()
-            }
+        } else {
+            date_b.partial_cmp(&date_a).unwrap()
         }
     });
     
@@ -1246,13 +1256,13 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
     for budget in &sorted_budgets {
         if let Some(ref category) = budget.category {
             content.push_str(&format!(
-                "<budget category=\"{}\" amount=\"{}\" duration=\"{}\"/>\n",
-                category, budget.amount, budget.duration
+                "<budget category=\"{}\" amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
+                category, budget.amount, budget.duration, budget.date
             ));
         } else {
             content.push_str(&format!(
-                "<budget amount=\"{}\" duration=\"{}\"/>\n",
-                budget.amount, budget.duration
+                "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
+                budget.amount, budget.duration, budget.date
             ));
         }
     }
