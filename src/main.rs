@@ -1362,16 +1362,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         // Collect transaction details
         let date = prompt_date_with_default(&default_date);
         
-        let category = if default_category.is_empty() {
-            print!("Category > ");
-            io::stdout().flush().unwrap();
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            input.trim().to_string()
-        } else {
-            prompt_with_default("Category", &default_category)
-        };
-        
         let amount = loop {
             print!("Amount > ");
             io::stdout().flush().unwrap();
@@ -1384,6 +1374,16 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             } else {
                 println!("Please enter a valid amount (e.g., 15.50)");
             }
+        };
+
+        let category = if default_category.is_empty() {
+            print!("Category > ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            input.trim().to_string()
+        } else {
+            prompt_with_default("Category", &default_category)
         };
         
         let payment_method = if default_payment_method.is_empty() {
