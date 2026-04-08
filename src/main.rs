@@ -768,7 +768,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "#pagebreak()").unwrap();
             writeln!(buf, "#v(5em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
-            let year_fraction = (1.0 - (stats.last_n_days.get(&365).unwrap().total - current_budget * 365.0)/(current_budget * 365.0)).max(0.5 / 0.95) * 0.95;
+            let year_fraction = (1.0 - 1.5 * (stats.last_n_days.get(&365).unwrap().total - current_budget * 365.0)/(current_budget * 365.0)).max(0.5 / 0.95) * 0.95;
             let month_fraction = allowed_next_month / (current_budget * 30.0) * 0.95;
             let fraction = year_fraction.min(month_fraction);
             writeln!(buf, "#align(center,text(fill: {color}, [You have overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
