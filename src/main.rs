@@ -1154,7 +1154,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
 }
 
 fn prompt_with_default(prompt: &str, default: &str) -> String {
-    print!("{} [{}] > ", prompt, default);
+    print!(" {} [{}] > ", prompt, default);
     io::stdout().flush().unwrap();
     
     let mut input = String::new();
@@ -1170,7 +1170,7 @@ fn prompt_with_default(prompt: &str, default: &str) -> String {
 
 fn prompt_date_with_default(default: &str) -> String {
     let default_date = NaiveDate::parse_from_str(&default, "%d/%m/%Y").unwrap();
-    print!("Date [{}] (or 'today') > ", default);
+    print!(" Date [{}] (or 'today') > ", default);
     io::stdout().flush().unwrap();
     
     let mut input = String::new();
@@ -1297,6 +1297,13 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
     fs::write(file_path, content)
 }
 
+fn tbold(s: &str) -> String {
+    format!("{}[1m {}{}[0m",0o033 as char, s,0o033 as char)
+}
+fn tclear() -> String {
+    format!("{}[2J{}[0;0H{}[K",0o033 as char,0o033 as char,0o033 as char)
+}
+
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
     // Parse existing file using quick_xml
@@ -1330,41 +1337,59 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     };
     
     // Get list of existing categories for reference
-    let existing_categories: Vec<String> = transactions.iter()
-        .map(|t| t.category.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
+    // let existing_categories: Vec<String> = transactions.iter()
+    //     .map(|t| t.category.clone())
+    //     .collect::<std::collections::HashSet<_>>()
+    //     .into_iter()
+    //     .collect();
     
-    if !existing_categories.is_empty() {
-        println!("Existing categories: {}.", existing_categories.join(", "));
-    }
+    // if !existing_categories.is_empty() {
+    //     println!("Existing categories: {}.", existing_categories.join(", "));
+    // }
     
     // Show existing budget categories
-    let budget_categories: Vec<&str> = budgets.iter()
-        .filter_map(|b| b.category.as_ref().map(|s| s.as_str()))
-        .collect();
+    // let budget_categories: Vec<&str> = budgets.iter()
+    //     .filter_map(|b| b.category.as_ref().map(|s| s.as_str()))
+    //     .collect();
     
-    if !budget_categories.is_empty() {
-        println!("Budget categories: {}.", budget_categories.join(", "));
-    }
+    // if !budget_categories.is_empty() {
+    //     println!("Budget categories: {}.", budget_categories.join(", "));
+    // }
 
     let last_date = transactions.iter().map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap()).max().unwrap();
-    let last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).collect::<Vec<_>>();
-
-    if !last_transactions.is_empty() {
-        println!("Last transactions:");
-        for t in last_transactions.iter() {
-            println!(" - {}", t);
-        }
-    }
+    let mut last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).map(|x| x.clone()).collect::<Vec<_>>();
     
-    loop {    
-        // Collect transaction details
-        let date = prompt_date_with_default(&default_date);
+    let mut added_transaction_idx = 0;
+    loop {
+        // Title & Recap
+        added_transaction_idx += 1;
+        println!("{}\n", tclear());
+        let bold_title =  tbold(&format!("=== Add Transaction (#{}) ===", added_transaction_idx));
+        println!("{}", bold_title);
+        if !last_transactions.is_empty() {
+            if added_transaction_idx != 1 {
+                println!("Added transactions:");
+                for (i, t) in   last_transactions.iter().enumerate() {
+                    println!(" {}. {}", i+1, t);
+                }
+            } else {
+                println!("Last transactions:");
+                for t in   last_transactions.iter() {
+                    println!(" - {}", t);
+                }
+            }
+        }
+        if added_transaction_idx == 1 {
+            last_transactions.clear();
+        }
+        println!();
         
+        // Inputs
+        
+        println!("Transaction data:");
+        let date = prompt_date_with_default(&default_date);
         let amount = loop {
-            print!("Amount > ");
+            print!(" Amount > ");
             io::stdout().flush().unwrap();
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
@@ -1378,7 +1403,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         };
 
         let category = if default_category.is_empty() {
-            print!("Category > ");
+            print!(" Category > ");
             io::stdout().flush().unwrap();
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
@@ -1388,7 +1413,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         };
         
         let payment_method = if default_payment_method.is_empty() {
-            print!("Payment Method > ");
+            print!(" Payment Method > ");
             io::stdout().flush().unwrap();
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
@@ -1397,7 +1422,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             prompt_with_default("Payment Method", &default_payment_method)
         };
         
-        print!("Note [optional] > ");
+        print!(" Note [optional] > ");
         io::stdout().flush().unwrap();
         let mut note = String::new();
         io::stdin().read_line(&mut note).unwrap();
@@ -1417,7 +1442,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             note,
         };
         
-        println!("{}", new_transaction);
+        last_transactions.push(new_transaction.clone());
         transactions.push(new_transaction);
         write_xml_file(file_path, &budgets, &transactions)?;
         println!("Transaction added.");
