@@ -757,9 +757,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
     const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: f64 = 0.33;
     {
-        writeln!(buf, "#pagebreak()").unwrap();
-
-        writeln!(buf, "#v(5em)").unwrap();
         let current_budget = budget.general_budget_at(today);
         // let excess_fraction = (stats.last_n_days.get(&30).unwrap().total - budget.total * 30.0)/(budget.total * 30.0);
         let mut allowed_next_month = current_budget * 30.0 + budget.accumulated(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
@@ -768,6 +765,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             allowed_next_month = allowed_next_month.max(current_budget * 30.0 * BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION * (1.0/0.95));
         }
         if allowed_next_month < budget.general_budget_at(today) * 30.0 {
+            writeln!(buf, "#pagebreak()").unwrap();
+            writeln!(buf, "#v(5em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
             let year_fraction = (1.0 - (stats.last_n_days.get(&365).unwrap().total - current_budget * 365.0)/(current_budget * 365.0)).max(0.5 / 0.95) * 0.95;
             let month_fraction = allowed_next_month / (current_budget * 30.0) * 0.95;
