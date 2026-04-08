@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit,
+    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -1224,48 +1224,97 @@ fn validate_amount(amount: &str) -> bool {
 }
 
 fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[RawTransaction]) -> std::io::Result<()> {
+    enum DBEntry<'a> {
+        Budget(&'a RawBudget),
+        Transaction(&'a RawTransaction),
+    }
+    use DBEntry::*;
+
+    let entries = {
+        let mut entries = Vec::with_capacity(budgets.len() + transactions.len());
+        for b in budgets {
+            entries.push(Budget(b));
+        }
+        for t in transactions {
+            entries.push(Transaction(t));
+        }
+        entries.sort_by(|x,y|
+            match (x,y) {
+                (Budget(b1), Budget(b2)) => {
+                    let b1_date = NaiveDate::parse_from_str(&b1.date, "%d/%m/%Y").unwrap();
+                    let b2_date = NaiveDate::parse_from_str(&b2.date, "%d/%m/%Y").unwrap();
+                    if b1_date == b2_date {
+                            (b2.amount.parse::<f64>().unwrap()).partial_cmp(&b1.amount.parse::<f64>().unwrap()).unwrap()
+                    } else {
+                        b2_date.cmp(&b1_date)
+                    }
+                },
+                (Transaction(t1), Transaction(t2)) => {
+                    let t1_date = NaiveDate::parse_from_str(&t1.date, "%d/%m/%Y").unwrap();
+                    let t2_date = NaiveDate::parse_from_str(&t2.date, "%d/%m/%Y").unwrap();
+                    if t1_date == t2_date {
+                            (t2.amount.parse::<f64>().unwrap()).partial_cmp(&t1.amount.parse::<f64>().unwrap()).unwrap()
+                    } else {
+                        t2_date.cmp(&t1_date)
+                    }
+                },
+                (Budget(b), Transaction(t)) => {
+                    let t_date = NaiveDate::parse_from_str(&t.date, "%d/%m/%Y").unwrap();
+                    let b_date = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
+                    if t_date == b_date {
+                        Ordering::Greater
+                    } else {
+                        t_date.cmp(&b_date)
+                    }
+                },
+                (Transaction(t),Budget(b)) => {
+                    let t_date = NaiveDate::parse_from_str(&t.date, "%d/%m/%Y").unwrap();
+                    let b_date = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
+                    if t_date == b_date {
+                        Ordering::Less
+                    } else {
+                        b_date.cmp(&t_date)
+                    }
+                }
+                // _ => Ordering::Equal,
+            }
+        );
+        entries
+    };
+
     let mut content = String::new();
     
-    // Sort budgets: total first (without category), then by amount descending
-    let mut sorted_budgets = budgets.to_vec();
-    sorted_budgets.sort_by(|a, b| {
-        let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y").unwrap();
-        let date_b = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
-        if date_a == date_b {
-            match (&a.category, &b.category) {
-                (None, None) => {
-                    // Both are total budgets, sort by amount
-                    let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
-                    let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
-                    b_amount.partial_cmp(&a_amount).unwrap()
-                }
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (Some(_), Some(_)) => {
-                    // Both have categories, sort by amount
-                    let a_amount = a.amount.parse::<f64>().unwrap_or(0.0);
-                    let b_amount = b.amount.parse::<f64>().unwrap_or(0.0);
-                    b_amount.partial_cmp(&a_amount).unwrap()
+    // Write budget lines
+    for e in entries {
+        match e {
+            Budget(budget) => {
+                if let Some(ref category) = budget.category {
+                    content.push_str(&format!(
+                        "<budget category=\"{}\" amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
+                        category, budget.amount, budget.duration, budget.date
+                    ));
+                } else {
+                    content.push_str(&format!(
+                        "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
+                        budget.amount, budget.duration, budget.date
+                    ));
+                }   
+            },
+            Transaction(transaction) => {
+                if transaction.note.is_empty() {
+                    content.push_str(&format!(
+                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\">\n",
+                        transaction.amount, transaction.category, transaction.date, transaction.payment_method
+                    ));
+                } else {
+                    content.push_str(&format!(
+                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\">\n",
+                        transaction.amount, transaction.category, transaction.date, transaction.payment_method, transaction.note
+                    ));
                 }
             }
-        } else {
-            date_b.partial_cmp(&date_a).unwrap()
         }
-    });
-    
-    // Write budget lines
-    for budget in &sorted_budgets {
-        if let Some(ref category) = budget.category {
-            content.push_str(&format!(
-                "<budget category=\"{}\" amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                category, budget.amount, budget.duration, budget.date
-            ));
-        } else {
-            content.push_str(&format!(
-                "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                budget.amount, budget.duration, budget.date
-            ));
-        }
+        
     }
     
     // Sort transactions by date descending (newest first)
@@ -1278,21 +1327,6 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
             .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
         date_b.cmp(&date_a) // Reverse order for descending
     });
-    
-    // Write transaction lines
-    for transaction in &sorted_transactions {
-        if transaction.note.is_empty() {
-            content.push_str(&format!(
-                "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\">\n",
-                transaction.amount, transaction.category, transaction.date, transaction.payment_method
-            ));
-        } else {
-            content.push_str(&format!(
-                "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\">\n",
-                transaction.amount, transaction.category, transaction.date, transaction.payment_method, transaction.note
-            ));
-        }
-    }
     
     fs::write(file_path, content)
 }
