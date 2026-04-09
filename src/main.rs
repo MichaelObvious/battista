@@ -712,8 +712,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     let today = Local::now().date_naive();
 
     let mut buf = Vec::new();
-    writeln!(buf, "#import \"@preview/cetz:0.3.2\"").unwrap();
-    writeln!(buf, "#import \"@preview/cetz-plot:0.1.1\"").unwrap();
+    writeln!(buf, "#import \"@preview/cetz:0.4.2\"").unwrap();
+    writeln!(buf, "#import \"@preview/cetz-plot:0.1.3\"").unwrap();
     writeln!(buf, "").unwrap();
     writeln!(buf, "#set document(title: [Spending report from {} ({})])", original_path.display(), today.format("%-d %B %Y")).unwrap();
     writeln!(buf, "#set page(width: 320mm, height: 200mm, numbering: \"1 of 1\")").unwrap();
