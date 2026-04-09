@@ -78,6 +78,11 @@ struct BudgetTimeline {
 }
 
 impl BudgetTimeline {
+    fn current_general(&self) -> Money {
+        let today = Local::now().date_naive();
+        self.general_budget_at(today)
+    }
+
     fn general_budget_at(&self, date: NaiveDate) -> Money {
         let base = self.general.rate_at(date).unwrap_or(0.0);
         let category_sum = self.category_sum_at(date);
@@ -672,7 +677,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap()
         }
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-        let allowed_amount = if budget.general_budget_at(today) > 0.0 {
+        let allowed_amount = if budget.current_general() > 0.0 {
                 let total_allowed = budget.accumulated(today - TimeDelta::days(n_days as i64), today);
                 let allowed = total_allowed - stats.total;
                 (format!("{:.0}", allowed), format!("{:.0}%", (stats.total*100.0)/total_allowed), if allowed >= 0.0  {
@@ -733,38 +738,60 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#outline()").unwrap();
     writeln!(buf, "").unwrap();
 
-    writeln!(buf, "= Monthly Budget").unwrap();
+    writeln!(buf, "= Budget").unwrap();
     let mut budget_categories = budget.per_category.keys().collect::<Vec<_>>();
     budget_categories.sort();
+    writeln!(buf, "#v(1fr)").unwrap();
+    writeln!(buf, "#columns(2, [").unwrap();
+    writeln!(buf, "#align(center, text([*Monthly Budget*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (left, right, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[*Category*], align(left, [*Allowed amount*]), align(left, [*% of Total*]), ").unwrap();
+    writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     let mut total_allocated = 0.0;
     for category in budget_categories {
         let current_category_budget = budget.category_budget_at(category, today).unwrap_or(0.0);
-        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, current_category_budget * 30.0, (current_category_budget / budget.general_budget_at(today))*100.0).unwrap();
+        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, current_category_budget * 30.0, (current_category_budget / budget.current_general())*100.0).unwrap();
         total_allocated += current_category_budget;
         writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * 100.0 / budget.general_budget_at(today)).unwrap();
+    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * 100.0 / budget.current_general()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[*Total*], [`{:.0}`], ", budget.general_budget_at(today) * 30.0).unwrap();
+    writeln!(buf, "[*Total*], [`{:.0}`], ", budget.current_general() * 30.0).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#colbreak()").unwrap();
+    writeln!(buf, "").unwrap();
+
+
+    writeln!(buf, "#align(center, text([*Per Period*], 18pt)) ").unwrap();
+    writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right), ").unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", budget.current_general() * 30.0).unwrap();
+    writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", budget.current_general() * 7.0).unwrap();
+    writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", budget.current_general()).unwrap();
+    writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
+    writeln!(buf, "))").unwrap();
+    writeln!(buf, "])").unwrap();
+    writeln!(buf, "#v(2fr)").unwrap();
 
     writeln!(buf, "").unwrap();
     const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: f64 = 0.33;
     {
-        let current_budget = budget.general_budget_at(today);
+        let current_budget = budget.current_general();
         // let excess_fraction = (stats.last_n_days.get(&30).unwrap().total - budget.total * 30.0)/(budget.total * 30.0);
         let mut allowed_next_month = current_budget * 30.0 + budget.accumulated(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
         let color = if allowed_next_month < current_budget * 30.0 * 0.80 { "red" } else if allowed_next_month < current_budget * 30.0 * 0.92 { "orange" } else { "black" };
         if allowed_next_month < current_budget * 30.0 * 0.75 {
             allowed_next_month = allowed_next_month.max(current_budget * 30.0 * BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION * (1.0/0.95));
         }
-        if allowed_next_month < budget.general_budget_at(today) * 30.0 {
+        if allowed_next_month < budget.current_general() * 30.0 {
             writeln!(buf, "#pagebreak()").unwrap();
             writeln!(buf, "#v(5em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
@@ -775,12 +802,13 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "#v(0.5em)").unwrap();
             writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-            writeln!(buf, "    [*Time interval* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*100.0).unwrap();
+            writeln!(buf, "    [*Period* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*100.0).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * current_budget * 30.0).unwrap();
-            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * current_budget * 7.0).unwrap();
-            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * current_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * current_budget * 7.0).unwrap();
+            writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * current_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "))").unwrap();
             let overspent_amount_last_year = stats.last_n_days.get(&365).unwrap().total - budget.accumulated_days(365);
