@@ -696,7 +696,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         writeln!(buf, "))").unwrap();
         writeln!(buf, "").unwrap();
-        if n_days > 31 {
+        if n_days >= 28 {
             writeln!(buf, "#v(2em)").unwrap();
             writeln!(buf, "").unwrap();
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
