@@ -880,11 +880,25 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 let percentage = max * 100.0/(max-min);
                 let epsilon = 1e-1;
 
-                (
-                    format!("({})", String::from_utf8(data_str_buf).unwrap()),
-                    format!("(red.transparentize(33%), 0%), (red.transparentize(100%), {}%), (green.transparentize(100%), {}%), (green.transparentize(66%), 100%)", percentage - epsilon, percentage + epsilon),
-                    format!("(red, 0%), (red, {}%), (green, {}%), (green, 100%)", percentage - epsilon, percentage + epsilon)
-                )
+                if percentage <= 0.0 {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(green.transparentize(100%), 0%), (green.transparentize(66%), 100%)"),
+                        format!("(green, 0%), (green, 100%)")
+                    )
+                } else if percentage >= 100.0 {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(red.transparentize(33%), 0%), (red.transparentize(100%), 100%)"),
+                        format!("(red, 0%), (red, 100%)")
+                    )
+                } else {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(red.transparentize(33%), 0%), (red.transparentize(100%), {}%), (green.transparentize(100%), {}%), (green.transparentize(66%), 100%)", percentage - epsilon, percentage + epsilon),
+                        format!("(red, 0%), (red, {}%), (green, {}%), (green, 100%)", percentage - epsilon, percentage + epsilon)
+                    )
+                }
             };
 
             writeln!(buf, "#v(1em)").unwrap();
