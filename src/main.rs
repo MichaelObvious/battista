@@ -783,7 +783,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "= Budget").unwrap();
     let mut budget_categories = budget.per_category.keys().collect::<Vec<_>>();
     budget_categories.sort();
-    writeln!(buf, "#v(1fr)").unwrap();
+    writeln!(buf, "#v(2em)").unwrap();
     writeln!(buf, "#columns(2, [").unwrap();
     writeln!(buf, "#align(center, text([*Monthly Budget*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (left, right, right), ").unwrap();
