@@ -826,6 +826,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
     const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: f64 = 0.55;
     {
+        let mut accumulated = accumulated_overspending(&stats.transactions, budget);
         let current_budget = budget.current_general();
         // let excess_fraction = (stats.last_n_days.get(&30).unwrap().total - budget.total * 30.0)/(budget.total * 30.0);
         let mut allowed_next_month = current_budget * 30.0 + budget.accumulated(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
@@ -853,19 +854,18 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * current_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "))").unwrap();
-            let overspent_amount_last_year = stats.last_n_days.get(&365).unwrap().total - budget.accumulated_days(365);
-            let recover_time_days = (overspent_amount_last_year / ((1.0 - fraction) * current_budget) * 1.1).ceil();
+            let overspent_total = accumulated.last().unwrap();
+            let recover_time_days = (overspent_total / ((1.0 - fraction) * current_budget) * 1.1).ceil();
             let recover_date = today + TimeDelta::days(recover_time_days as i64);
             writeln!(buf, "").unwrap();
             writeln!(buf, "#v(1em)").unwrap();
-            writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0} days).])", overspent_amount_last_year, color, recover_date.format("%B %-d, %Y"), recover_time_days).unwrap();
+            writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0} days).])", overspent_total, color, recover_date.format("%B %-d, %Y"), recover_time_days).unwrap();
             writeln!(buf, "]))").unwrap();
             
 
             
             let (data_str, fill_gradient, stroke_gradient) = {
                 let mut data_str_buf = Vec::new();
-                let mut accumulated = accumulated_overspending(&stats.transactions, budget);
                 if accumulated.len() > 365 {
                     accumulated = accumulated.split_off(accumulated.len() - 365);
                     assert!(accumulated.len() == 365);
