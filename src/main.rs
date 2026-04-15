@@ -175,13 +175,51 @@ impl BudgetTimeline {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Transaction {
     value: i64, // units and cents
     date: NaiveDate,
     category: Category,
     payment_method: String,
     note: String,
+}
+
+fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimeline) -> Vec<f64> {
+    if transactions.is_empty() {
+        return Vec::new();
+    }
+
+    // Find the date range
+    let first_date = transactions.iter().map(|t| t.date).min().unwrap();
+    let last_date = Local::now().date_naive();//transactions.iter().map(|t| t.date).max().unwrap();
+
+    let mut result = Vec::new();
+    let mut accumulated = 0.0;
+    let mut current = first_date;
+
+    while current <= last_date {
+        // Calculate total spent on this day
+        let daily_spending: f64 = transactions
+            .iter()
+            .filter(|t| t.date == current)
+            .map(|t| t.value as f64 / 100.0) // Convert from cents to monetary units
+            .sum();
+
+        // Get budget for this day
+        let daily_budget = budget.general_budget_at(current);
+
+        // Calculate overspending (positive = over budget, negative = under budget)
+        let overspending = daily_spending - daily_budget;
+
+        // Accumulate
+        accumulated += overspending;
+        result.push(accumulated);
+
+        // Move to next day
+        current = current + chrono::Duration::days(1);
+    }
+
+    result
 }
 
 #[derive(Debug, Default)]
@@ -289,7 +327,8 @@ struct StatsCollection {
     yearly: Vec<(i32, Stats)>,         // year
     monthly: Vec<((i32, u32), Stats)>, // year, month
     weekly: Vec<(IsoWeek, Stats)>, // year, week
-    last_n_days: HashMap<u64, Stats>
+    last_n_days: HashMap<u64, Stats>,
+    transactions: Vec<Transaction>,
 }
 
 #[derive(Debug, Default)]
@@ -299,7 +338,8 @@ struct TempStatsCollection {
     yearly: HashMap<i32, TempStats>,         // year
     monthly: HashMap<(i32, u32), TempStats>, // year, month
     weekly: HashMap<IsoWeek, TempStats>, // year, week
-    last_n_days: HashMap<u64, TempStats>
+    last_n_days: HashMap<u64, TempStats>,
+    transactions: Vec<Transaction>
 }
 
 impl TempStatsCollection {
@@ -329,6 +369,7 @@ impl TempStatsCollection {
             monthly: monthly,
             weekly: weekly,
             last_n_days: self.last_n_days.into_iter().map(|(x,y)| (x, y.into_stats())).collect(),
+            transactions: self.transactions,
         }
     }
 }
@@ -518,6 +559,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
 
 fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     let mut tsc = TempStatsCollection::default();
+    tsc.transactions = transactions.clone();
     for n in LAST_N_DAYS {
         tsc.last_n_days.insert(n, TempStats::default());
     }
@@ -782,7 +824,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#v(2fr)").unwrap();
 
     writeln!(buf, "").unwrap();
-    const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: f64 = 0.33;
+    const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: f64 = 0.55;
     {
         let current_budget = budget.current_general();
         // let excess_fraction = (stats.last_n_days.get(&30).unwrap().total - budget.total * 30.0)/(budget.total * 30.0);
@@ -793,7 +835,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         }
         if allowed_next_month < budget.current_general() * 30.0 {
             writeln!(buf, "#pagebreak()").unwrap();
-            writeln!(buf, "#v(5em)").unwrap();
+            writeln!(buf, "#v(3em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
             let year_fraction = (1.0 - 1.5 * (stats.last_n_days.get(&365).unwrap().total - current_budget * 365.0)/(current_budget * 365.0)).max(0.5 / 0.95) * 0.95;
             let month_fraction = allowed_next_month / (current_budget * 30.0) * 0.95;
@@ -818,6 +860,52 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "#v(1em)").unwrap();
             writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0} days).])", overspent_amount_last_year, color, recover_date.format("%B %-d, %Y"), recover_time_days).unwrap();
             writeln!(buf, "]))").unwrap();
+            
+
+            
+            let (data_str, fill_gradient, stroke_gradient) = {
+                let mut data_str_buf = Vec::new();
+                let mut accumulated = accumulated_overspending(&stats.transactions, budget);
+                if accumulated.len() > 365 {
+                    accumulated = accumulated.split_off(accumulated.len() - 365);
+                    assert!(accumulated.len() == 365);
+                }
+                for (i, x) in accumulated.iter().enumerate() {
+                    write!(data_str_buf, "({},{}),", i, x).unwrap();
+                }
+
+                // ----
+                let max = accumulated.to_owned().into_iter().reduce(f64::max).unwrap();
+                let min = accumulated.into_iter().reduce(f64::min).unwrap();
+                let percentage = max * 100.0/(max-min);
+                let epsilon = 1e-1;
+
+                (
+                    format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                    format!("(red.transparentize(33%), 0%), (red.transparentize(100%), {}%), (green.transparentize(100%), {}%), (green.transparentize(66%), 100%)", percentage - epsilon, percentage + epsilon),
+                    format!("(red, 0%), (red, {}%), (green, {}%), (green, 100%)", percentage - epsilon, percentage + epsilon)
+                )
+            };
+
+            writeln!(buf, "#v(1em)").unwrap();
+            writeln!(buf, "#align(center,").unwrap();
+            writeln!(buf, "cetz.canvas({{").unwrap();
+            writeln!(buf, "import cetz.draw: *").unwrap();
+            writeln!(buf, "import cetz-plot: *").unwrap();
+            writeln!(buf).unwrap();
+            writeln!(buf, "plot.plot(").unwrap();
+            writeln!(buf, "    size: (15, 3),").unwrap();
+            writeln!(buf, "    axis-style: none,").unwrap();
+            writeln!(buf, "    {{").unwrap();
+            writeln!(buf, "    plot.add(").unwrap();
+            writeln!(buf, "        {},", data_str).unwrap();
+            writeln!(buf, "        fill: true,").unwrap();
+            writeln!(buf, "        style: (stroke: gradient.linear({}, dir: direction.ttb), fill: gradient.linear({}, dir: direction.ttb)),", stroke_gradient, fill_gradient).unwrap();
+            writeln!(buf, "        // close: true,").unwrap();
+            writeln!(buf, "    )").unwrap();
+            writeln!(buf, "    }}").unwrap();
+            writeln!(buf, ")").unwrap();
+            writeln!(buf, "}}))").unwrap();
 
         }
     }
