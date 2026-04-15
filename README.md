@@ -4,17 +4,27 @@ It keeps track of expenses and processes the data to provide some statistics.
 
 ## Usage
 
-### Without Installation
+### Building & Running
+
+Without Installation:
 
 ```sh
 cargo run --release <path/to/file.csv>
 ```
 
-### With Installation
+With Installation:
 
 ```sh
 cargo install --path .
 battista <path/to/file.xml>
 ```
 
-Supply a `.xml` file like the [`example.xml`](./example.xml).
+### Adding expenses to a file
+
+```sh
+battista add <path/to/file.xml>
+```
+
+## Example
+
+To see an example of an `.xml` file with its report, run `python3 ./build_example.py`.
