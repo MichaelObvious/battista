@@ -466,7 +466,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                 },
             },
             Ok(_) => {},
-            Err(e) => println!("[ERROR]: XML parsin error `{}`", e),
+            Err(e) => println!("[ERROR]: XML parsing error `{}`", e),
         }
     }
 
@@ -1141,7 +1141,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                eprintln!("Error parsing XML: {}", e);
+                println!("[ERROR]: XML parsing error `{}`", e);
                 break;
             }
             _ => {}
@@ -1189,18 +1189,18 @@ fn prompt_date_with_default(default: &str) -> String {
                 1 => format!("{:02}/{:02}/{}", input.parse::<u32>().unwrap(), default_date.month(), default_date.year()),
                 2 => format!("{:02}/{:02}/{}", numbers[0], numbers[1], default_date.year()),
                 _ =>  {
-                    println!("Invalid date format. Please use dd/mm/yyyy.");
+                    println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
                     prompt_date_with_default(default)
                 },
             };
             if NaiveDate::parse_from_str(&corrected_input, "%d/%m/%Y").is_ok() {
                 corrected_input
             } else {
-                println!("Invalid date format. Please use dd/mm/yyyy.");
+                println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
                 prompt_date_with_default(default)
             }
         } else {
-            println!("Invalid date format. Please use dd/mm/yyyy.");
+            println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
             prompt_date_with_default(default)
         }
     }
@@ -1422,7 +1422,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             prompt_with_default("Payment Method", &default_payment_method)
         };
         
-        print!(" Note [optional] > ");
+        print!(" Note (optional) > ");
         io::stdout().flush().unwrap();
         let mut note = String::new();
         io::stdin().read_line(&mut note).unwrap();
@@ -1444,7 +1444,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         last_transactions.push(new_transaction.clone());
         transactions.push(new_transaction);
         write_xml_file(file_path, &budgets, &transactions)?;
-        println!("Transaction added.");
+        println!("[INFO] Transaction added.");
 
 
 
@@ -1493,5 +1493,5 @@ fn main() {
     let mut out_path = path.clone();
     out_path.set_extension("typ");
     write_typ_report(&out_path, &stats, &budget, &path);
-    println!("Detailed report saved in `{}`.", out_path.display());
+    println!("[INFO] Detailed report saved in `{}`.", out_path.display());
 }
