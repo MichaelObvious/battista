@@ -14,6 +14,38 @@ type Category = String;
 type Money = Decimal;
 
 #[derive(Debug, Default, Clone)]
+struct Transaction {
+    value: Money,
+    date: NaiveDate,
+    category: Category,
+    payment_method: String,
+    note: String,
+}
+
+#[derive(Debug, Clone)]
+struct RawBudget {
+    category: Option<String>,
+    amount: String,
+    duration: String,
+    date: String,
+}
+
+#[derive(Debug, Clone)]
+struct RawTransaction {
+    amount: String,
+    category: String,
+    date: String,
+    payment_method: String,
+    note: String,
+}
+
+impl fmt::Display for RawTransaction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[TRANSACTION; {}; {}; {}; {}; `{}`]", self.date, self.category, self.amount, self.payment_method, self.note)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
 struct RateSchedule {
     changes: BTreeMap<NaiveDate, Money>,
 }
@@ -71,7 +103,6 @@ impl BudgetTimeline {
         self.per_category.get(category).and_then(|s| s.rate_at(date))
     }
 
-
     fn accumulated_days_to(&self, n_days: i64, start: NaiveDate) -> Money {
         if n_days < 0 {
             return self.accumulated(start, start + TimeDelta::days(-n_days));
@@ -118,43 +149,6 @@ impl BudgetTimeline {
             .or_default()
             .set(date, amount / duration);
     }
-}
-
-#[derive(Debug, Default, Clone)]
-struct Transaction {
-    value: Money,
-    date: NaiveDate,
-    category: Category,
-    payment_method: String,
-    note: String,
-}
-
-fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimeline) -> Vec<Money> {
-    if transactions.is_empty() {
-        return Vec::new();
-    }
-
-    let first_date = transactions.iter().map(|t| t.date).min().unwrap();
-    let last_date = Local::now().date_naive();
-
-    let mut result = Vec::new();
-    let mut accumulated = Money::ZERO;
-    let mut current = first_date;
-
-    while current <= last_date {
-        let daily_spending: Money = transactions
-            .iter()
-            .filter(|t| t.date == current)
-            .map(|t| t.value)
-            .sum();
-        let daily_budget = budget.general_budget_at(current);
-        let overspending = daily_spending - daily_budget;
-        accumulated += overspending;
-        result.push(accumulated);
-        current = current + TimeDelta::days(1);
-    }
-
-    result
 }
 
 #[derive(Debug, Default)]
@@ -310,14 +304,21 @@ impl TempStatsCollection {
     }
 }
 
+fn tbold(s: &str) -> String {
+    format!("{}[1m {}{}[0m",0o033 as char, s,0o033 as char)
+}
+fn tclear() -> String {
+    format!("{}[2J{}[0;0H{}[K",0o033 as char,0o033 as char,0o033 as char)
+}
+
 fn next_month(d: NaiveDate) -> NaiveDate {
-    let year = year_as_i32(d.year_ce());
+    let year = d.year();
     let month = d.month0() + 1;
     NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
 }
 
 fn days_in_month(d: NaiveDate) -> i64 {
-    let year = year_as_i32(d.year_ce());
+    let year = d.year();
     let month = d.month0() + 1;
     (next_month(d)
         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
@@ -325,44 +326,51 @@ fn days_in_month(d: NaiveDate) -> i64 {
 }
 
 fn days_in_year(d: NaiveDate) -> i64 {
-    let year = year_as_i32(d.year_ce());
+    let year = d.year();
     (NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
         - NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
     .num_days()
 }
 
-fn year_as_i32(year_ce: (bool, u32)) -> i32 {
-    if year_ce.0 {
-        year_ce.1 as i32
+fn validate_amount(amount: &str) -> bool {
+    let amount_str = amount.trim();
+    if amount_str.is_empty() {
+        return false;
+    }
+    
+    if let Ok(parsed) = amount_str.parse::<Money>() {
+        parsed.fract().mantissa() < 100
     } else {
-        -1 * year_ce.1 as i32
+        false
     }
 }
 
-fn print_usage() {
-    println!("USAGE: {} [add] <path/to/file.xml>", env::args().next().unwrap());
-}
-
-fn get_options() -> (Option<PathBuf>, bool) {
-    let args = env::args().skip(1);
-    let mut add = false;
-
-    let mut path = None;
-    for arg in args {
-        if arg == "add" {
-            add = true;
-        }
-        let cur_path = PathBuf::from(arg);
-        match cur_path.try_exists() {
-            Ok(true) => {
-                path = Some(cur_path);
-                break;
-            }
-            _ => {}
-        }
+fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimeline) -> Vec<Money> {
+    if transactions.is_empty() {
+        return Vec::new();
     }
 
-    return (path, add);
+    let first_date = transactions.iter().map(|t| t.date).min().unwrap();
+    let last_date = Local::now().date_naive();
+
+    let mut result = Vec::new();
+    let mut accumulated = Money::ZERO;
+    let mut current = first_date;
+
+    while current <= last_date {
+        let daily_spending: Money = transactions
+            .iter()
+            .filter(|t| t.date == current)
+            .map(|t| t.value)
+            .sum();
+        let daily_budget = budget.general_budget_at(current);
+        let overspending = daily_spending - daily_budget;
+        accumulated += overspending;
+        result.push(accumulated);
+        current = current + TimeDelta::days(1);
+    }
+
+    result
 }
 
 fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
@@ -431,7 +439,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     for transaction in transactions.iter() {
         first_date = first_date.min(transaction.date);
 
-        let year = year_as_i32(transaction.date.year_ce());
+        let year = transaction.date.year();
         let month = transaction.date.month0() + 1;
         let week = transaction.date.iso_week();
         start = start.min(transaction.date);
@@ -664,7 +672,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#colbreak()").unwrap();
     writeln!(buf, "").unwrap();
 
-
     writeln!(buf, "#align(center, text([*Per Period*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
@@ -847,7 +854,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
-
     writeln!(buf, "").unwrap();
     writeln!(buf, "= 12 Month Overview").unwrap();
     writeln!(buf, "").unwrap();
@@ -981,30 +987,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     f.write(buf.as_slice()).unwrap();
 }
 
-
-#[derive(Debug, Clone)]
-struct RawBudget {
-    category: Option<String>,
-    amount: String,
-    duration: String,
-    date: String,
-}
-
-#[derive(Debug, Clone)]
-struct RawTransaction {
-    amount: String,
-    category: String,
-    date: String,
-    payment_method: String,
-    note: String,
-}
-
-impl fmt::Display for RawTransaction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[TRANSACTION; {}; {}; {}; {}; `{}`]", self.date, self.category, self.amount, self.payment_method, self.note)
-    }
-}
-
 fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let mut reader = Reader::from_str(&content);
@@ -1094,73 +1076,6 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
     }
     
     (budgets, transactions)
-}
-
-fn prompt_with_default(prompt: &str, default: &str) -> String {
-    print!(" {} [{}] > ", prompt, default);
-    io::stdout().flush().unwrap();
-    
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim().to_string();
-    
-    if input.is_empty() {
-        default.to_string()
-    } else {
-        input
-    }
-}
-
-fn prompt_date_with_default(default: &str) -> String {
-    let default_date = NaiveDate::parse_from_str(&default, "%d/%m/%Y").unwrap();
-    print!(" Date [{}] (or 'today') > ", default);
-    io::stdout().flush().unwrap();
-    
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim().to_string();
-    
-    if input.is_empty() {
-        default.to_string()
-    } else if input.to_lowercase() == "today" {
-        Local::now().date_naive().format("%d/%m/%Y").to_string()
-    } else {
-        if NaiveDate::parse_from_str(&input, "%d/%m/%Y").is_ok() {
-            input
-        } else if input.split('/').all(|x| x.parse::<u32>().is_ok()) {
-            let numbers = input.split('/').map(|x| x.parse::<u32>().unwrap()).collect::<Vec<_>>();
-            let corrected_input = match numbers.len() {
-                1 => format!("{:02}/{:02}/{}", input.parse::<u32>().unwrap(), default_date.month(), default_date.year()),
-                2 => format!("{:02}/{:02}/{}", numbers[0], numbers[1], default_date.year()),
-                _ =>  {
-                    println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
-                    prompt_date_with_default(default)
-                },
-            };
-            if NaiveDate::parse_from_str(&corrected_input, "%d/%m/%Y").is_ok() {
-                corrected_input
-            } else {
-                println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
-                prompt_date_with_default(default)
-            }
-        } else {
-            println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
-            prompt_date_with_default(default)
-        }
-    }
-}
-
-fn validate_amount(amount: &str) -> bool {
-    let amount_str = amount.trim();
-    if amount_str.is_empty() {
-        return false;
-    }
-    
-    if let Ok(parsed) = amount_str.parse::<Money>() {
-        parsed.fract().mantissa() < 100
-    } else {
-        false
-    }
 }
 
 fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[RawTransaction]) -> std::io::Result<()> {
@@ -1267,11 +1182,84 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
     fs::write(file_path, content)
 }
 
-fn tbold(s: &str) -> String {
-    format!("{}[1m {}{}[0m",0o033 as char, s,0o033 as char)
+fn print_usage() {
+    println!("USAGE: {} [add] <path/to/file.xml>", env::args().next().unwrap());
 }
-fn tclear() -> String {
-    format!("{}[2J{}[0;0H{}[K",0o033 as char,0o033 as char,0o033 as char)
+
+fn get_options() -> (Option<PathBuf>, bool) {
+    let args = env::args().skip(1);
+    let mut add = false;
+
+    let mut path = None;
+    for arg in args {
+        if arg == "add" {
+            add = true;
+        }
+        let cur_path = PathBuf::from(arg);
+        match cur_path.try_exists() {
+            Ok(true) => {
+                path = Some(cur_path);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    return (path, add);
+}
+
+fn prompt_with_default(prompt: &str, default: &str) -> String {
+    print!(" {} [{}] > ", prompt, default);
+    io::stdout().flush().unwrap();
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_string();
+    
+    if input.is_empty() {
+        default.to_string()
+    } else {
+        input
+    }
+}
+
+fn prompt_date_with_default(default: &str) -> String {
+    let default_date = NaiveDate::parse_from_str(&default, "%d/%m/%Y").unwrap();
+    print!(" Date [{}] (or 'today') > ", default);
+    io::stdout().flush().unwrap();
+    
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim().to_string();
+    
+    if input.is_empty() {
+        default.to_string()
+    } else if input.to_lowercase() == "today" {
+        Local::now().date_naive().format("%d/%m/%Y").to_string()
+    } else {
+        if NaiveDate::parse_from_str(&input, "%d/%m/%Y").is_ok() {
+            input
+        } else if input.split('/').all(|x| x.parse::<u32>().is_ok()) {
+            let numbers = input.split('/').map(|x| x.parse::<u32>().unwrap()).collect::<Vec<_>>();
+            let corrected_input = match numbers.len() {
+                1 => format!("{:02}/{:02}/{}", input.parse::<u32>().unwrap(), default_date.month(), default_date.year()),
+                2 => format!("{:02}/{:02}/{}", numbers[0], numbers[1], default_date.year()),
+                _ =>  {
+                    println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+                    prompt_date_with_default(default)
+                },
+            };
+            if NaiveDate::parse_from_str(&corrected_input, "%d/%m/%Y").is_ok() {
+                corrected_input
+            } else {
+                println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+                prompt_date_with_default(default)
+            }
+        } else {
+            println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+            prompt_date_with_default(default)
+        }
+    }
 }
 
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
@@ -1372,7 +1360,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         io::stdin().read_line(&mut note).unwrap();
         let note = note.trim().to_string();
 
-
         default_category = category.clone();
         default_date = date.clone();
         default_payment_method = payment_method.clone();
@@ -1389,8 +1376,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         transactions.push(new_transaction);
         write_xml_file(file_path, &budgets, &transactions)?;
         println!("[INFO] Transaction added.");
-
-
 
         print!("Add another transaction? (y/n) > ");
         io::stdout().flush().unwrap();
