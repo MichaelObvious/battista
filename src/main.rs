@@ -36,15 +36,6 @@ impl RateSchedule {
         last
     }
 
-    fn next_change_after(&self, date: NaiveDate) -> Option<NaiveDate> {
-        for (d, _) in &self.changes {
-            if *d > date {
-                return Some(*d);
-            }
-        }
-        None
-    }
-
     fn accumulated(&self, start: NaiveDate, end: NaiveDate) -> Money {
         let mut total = Money::ZERO;
         let mut cursor = start + TimeDelta::days(1);
