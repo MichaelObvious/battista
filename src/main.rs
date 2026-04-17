@@ -140,14 +140,14 @@ impl BudgetTimeline {
     }
 
     fn add_general(&mut self, date: NaiveDate, amount: Money, duration: Money) {
-        self.general.set(date, amount / duration);
+        self.general.set(date, (amount / duration).round_dp(2));
     }
 
     fn add_category(&mut self, category: Category, date: NaiveDate, amount: Money, duration: Money) {
         self.per_category
             .entry(category)
             .or_default()
-            .set(date, amount / duration);
+            .set(date, (amount / duration).round_dp(2));
     }
 }
 
@@ -404,7 +404,6 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     }).collect::<HashMap<_,_>>();
 
                     assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
-
                     transactions.push(Transaction {
                         category: attributes.get("category").unwrap_or(&String::default()).trim().to_owned(),
                         date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
@@ -1099,7 +1098,7 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
                     let b1_date = NaiveDate::parse_from_str(&b1.date, "%d/%m/%Y").unwrap();
                     let b2_date = NaiveDate::parse_from_str(&b2.date, "%d/%m/%Y").unwrap();
                     if b1_date == b2_date {
-                            (b2.amount.parse::<f64>().unwrap()).partial_cmp(&b1.amount.parse::<f64>().unwrap()).unwrap()
+                            (b2.amount.parse::<Money>().unwrap()).partial_cmp(&b1.amount.parse::<Money>().unwrap()).unwrap()
                     } else {
                         b2_date.cmp(&b1_date)
                     }
@@ -1108,7 +1107,7 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
                     let t1_date = NaiveDate::parse_from_str(&t1.date, "%d/%m/%Y").unwrap();
                     let t2_date = NaiveDate::parse_from_str(&t2.date, "%d/%m/%Y").unwrap();
                     if t1_date == t2_date {
-                            (t2.amount.parse::<f64>().unwrap()).partial_cmp(&t1.amount.parse::<f64>().unwrap()).unwrap()
+                            (t2.amount.parse::<Money>().unwrap()).partial_cmp(&t1.amount.parse::<Money>().unwrap()).unwrap()
                     } else {
                         t2_date.cmp(&t1_date)
                     }
