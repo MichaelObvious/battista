@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 chrono = "0.4"
 quick-xml = "0.39"
+rust_decimal = "1.41.0"

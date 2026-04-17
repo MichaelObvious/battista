@@ -1,11 +1,11 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::exit
+    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
 use quick_xml::{Reader, events::Event};
-// use rust_decimal::Decimal;
+use rust_decimal::Decimal;
 
 const LAST_N_DAYS: [u64; 4] = [7, 14, 30, 365];
 
@@ -177,14 +177,14 @@ impl BudgetTimeline {
 
 #[derive(Debug, Default, Clone)]
 struct Transaction {
-    value: i64, // units and cents
+    value: Money, // units and cents
     date: NaiveDate,
     category: Category,
     payment_method: String,
     note: String,
 }
 
-fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimeline) -> Vec<f64> {
+fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimeline) -> Vec<Money> {
     if transactions.is_empty() {
         return Vec::new();
     }
@@ -199,10 +199,10 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
 
     while current <= last_date {
         // Calculate total spent on this day
-        let daily_spending: f64 = transactions
+        let daily_spending: Money = transactions
             .iter()
             .filter(|t| t.date == current)
-            .map(|t| t.value as f64 / 100.0) // Convert from cents to monetary units
+            .map(|t| t.value) // Convert from cents to monetary units
             .sum();
 
         // Get budget for this day
@@ -228,15 +228,15 @@ struct Stats {
     #[allow(unused)]
     end: NaiveDate,
     #[allow(unused)]
-    per_day: f64,
-    total: f64,
-    by_category: Vec<(Category, f64)>,
+    per_day: Money,
+    total: Money,
+    by_category: Vec<(Category, Money)>,
     #[allow(unused)]
-    by_payment_method: Vec<(String, f64)>,
+    by_payment_method: Vec<(String, Money)>,
     #[allow(unused)]
-    by_note: Vec<(String, f64)>,
+    by_note: Vec<(String, Money)>,
     #[allow(unused)]
-    average_transaction: f64,
+    average_transaction: Money,
     #[allow(unused)]
     transaction_count: u64,
 }
@@ -245,12 +245,12 @@ struct Stats {
 struct TempStats {
     start: NaiveDate,
     end: NaiveDate,
-    per_day: f64,
-    total: i64,
-    by_category: HashMap<Category, i64>,
-    by_payment_method: HashMap<String, i64>,
-    by_note: HashMap<String, i64>,
-    average_transaction: f64,
+    per_day: Money,
+    total: Money,
+    by_category: HashMap<Category, Money>,
+    by_payment_method: HashMap<String, Money>,
+    by_note: HashMap<String, Money>,
+    average_transaction: Money,
     transaction_count: u64,
 }
 
@@ -259,17 +259,17 @@ impl TempStats {
         let value = e.value;
         self.total += value;
         if !self.by_category.contains_key(&e.category) {
-            self.by_category.insert(e.category.clone(), 0);
+            self.by_category.insert(e.category.clone(), 0.0);
         }
         *(self.by_category.get_mut(&e.category).unwrap()) += value;
 
         if !self.by_payment_method.contains_key(&e.payment_method) {
-            self.by_payment_method.insert(e.payment_method.clone(), 0);
+            self.by_payment_method.insert(e.payment_method.clone(), 0.0);
         }
         *(self.by_payment_method.get_mut(&e.payment_method).unwrap()) += value;
 
         if !self.by_note.contains_key(&e.note) {
-            self.by_note.insert(e.note.clone(), 0);
+            self.by_note.insert(e.note.clone(), 0.0);
         }
         *(self.by_note.get_mut(&e.note).unwrap()) += value;
 
@@ -288,33 +288,29 @@ impl TempStats {
     }
 
     pub fn calc_averages(&mut self, days: u64) {
-        let days = days as f64;
-        self.per_day = self.get_total() / days;
-        self.average_transaction = self.get_total() / self.transaction_count as f64;
+        let days = days as Money;
+        self.per_day = self.total / days;
+        self.average_transaction = self.total / self.transaction_count as Money;
     }
 
     pub fn into_stats(self) -> Stats {
-        let mut by_category = self.by_category.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
+        let mut by_category = self.by_category.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_category.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
-        let mut by_payment_method = self.by_payment_method.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
+        let mut by_payment_method = self.by_payment_method.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_payment_method.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
-        let mut by_note = self.by_note.into_iter().map(|(k,v)| (k, v as f64/100.0)).collect::<Vec<_>>();
+        let mut by_note = self.by_note.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_note.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         Stats {
             start: self.start,
             end: self.end,
             per_day: self.per_day,
-            total: self.total as f64 / 100.0,
+            total: self.total,
             by_category,
             by_payment_method,
             by_note,
             average_transaction: self.average_transaction,
             transaction_count: self.transaction_count,
         }
-    }
-
-    fn get_total(&self) -> f64 {
-        self.total as f64 / 100.0
     }
 }
 
@@ -374,58 +370,6 @@ impl TempStatsCollection {
     }
 }
 
-// struct DateRange(NaiveDate, NaiveDate);
-
-// impl Iterator for DateRange {
-//     type Item = NaiveDate;
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.0 <= self.1 {
-//             let next = self.0 + Duration::days(1);
-//             Some(mem::replace(&mut self.0, next))
-//         } else {
-//             None
-//         }
-//     }
-// }
-
-#[allow(dead_code)]
-fn moving_average(xs: Vec<f64>, window: isize) -> Vec<f64> {
-    let mut average = Vec::new();
-
-    for i in 0..xs.len() {
-        let mut a = 0.0;
-        let start = (i as isize - window + 1).max(0) as usize;
-        let n = (i - start + 1) as f64;
-        for j in start..=i {
-            a += xs[j];
-        }
-        a /= n;
-        average.push(a);
-    }
-    assert!(average.len() == xs.len());
-    return average;
-}
-
-#[allow(dead_code)]
-fn weighted_moving_average(xs: Vec<(f64, f64)>, window: isize) -> Vec<f64> {
-    let mut average = Vec::new();
-
-    for i in 0..xs.len() {
-        let mut a = 0.0;
-        let mut d = 0.0;
-        let start = (i as isize - window + 1).max(0) as usize;
-        for j in start..=i {
-            a += xs[j].0 * xs[j].1;
-            d += xs[j].1;
-        }
-        a /= d;
-        average.push(a);
-    }
-    assert!(average.len() == xs.len());
-    return average;
-}
-
 fn next_month(d: NaiveDate) -> NaiveDate {
     let year = year_as_i32(d.year_ce());
     let month = d.month0() + 1;
@@ -455,34 +399,8 @@ fn year_as_i32(year_ce: (bool, u32)) -> i32 {
     }
 }
 
-fn parse_amount_as_cents(field: &str) -> i64 {
-    let negative = field.trim().starts_with('-');
-    let mut parts = field.split('.');
-    let units = parts.next().unwrap().trim().parse::<i32>().unwrap();
-    let cents = parts
-        .next()
-        .unwrap_or("0")
-        .trim()
-        .parse::<u32>()
-        .unwrap_or(0);
-
-    if cents >= 100 {
-        eprintln!(
-            "[ERROR] Could not parse amount `{}` (cents seem to have too many digits).",
-            field.trim(),
-        );
-        exit(1);
-    }
-    let cents = if units < 0 || negative {
-        -(cents as i64)
-    } else {
-        cents as i64
-    } * if cents < 10 { 10 } else { 1 };
-    return units as i64 * 100 + cents;
-}
-
 fn print_usage() {
-    println!("USAGE: {} <path/to/file.xml>", env::args().next().unwrap());
+    println!("USAGE: {} [add] <path/to/file.xml>", env::args().next().unwrap());
 }
 
 fn get_options() -> (Option<PathBuf>, bool) {
@@ -540,7 +458,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     transactions.push(Transaction {
                         category: attributes.get("category").unwrap_or(&String::default()).trim().to_owned(),
                         date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
-                        value: parse_amount_as_cents(attributes.get("amount").unwrap()),
+                        value: attributes.get("amount").unwrap().parse::<Money>().unwrap(),
                         note: if attributes.contains_key("note") { attributes.get("note").unwrap().to_owned() } else { String::default() },
                         payment_method: attributes.get("payment-method").unwrap().trim().to_owned(),
                     });
