@@ -23,7 +23,6 @@ impl RateSchedule {
         self.changes.insert(date, rate);
     }
 
-    /// Rate active at `date`
     fn rate_at(&self, date: NaiveDate) -> Option<Money> {
         let mut last = None;
 
@@ -37,7 +36,6 @@ impl RateSchedule {
         last
     }
 
-    /// First change strictly after `date`
     fn next_change_after(&self, date: NaiveDate) -> Option<NaiveDate> {
         for (d, _) in &self.changes {
             if *d > date {
@@ -47,25 +45,13 @@ impl RateSchedule {
         None
     }
 
-    /// Accumulate over [start, end)
     fn accumulated(&self, start: NaiveDate, end: NaiveDate) -> Money {
-        if end <= start {
-            return Money::ZERO;
-        }
-
         let mut total = Money::ZERO;
-        let mut cursor = start;
+        let mut cursor = start + TimeDelta::days(1);
 
-        while cursor < end {
-            let rate = self.rate_at(cursor).unwrap_or(Money::ZERO);
-
-            let next_change = self.next_change_after(cursor);
-            let segment_end = next_change.unwrap_or(end).min(end);
-
-            let days = Decimal::from((segment_end - cursor).num_days());
-            total += rate * days;
-
-            cursor = segment_end;
+        while cursor <= end {
+            total += self.rate_at(cursor).unwrap_or(Money::ZERO);
+            cursor += TimeDelta::days(1);
         }
 
         total
@@ -108,46 +94,13 @@ impl BudgetTimeline {
         return self.accumulated_days_to(n_days, today);
     }
 
-    fn next_change_after(&self, date: NaiveDate) -> Option<NaiveDate> {
-        let mut next: Option<NaiveDate> = None;
-
-        // check general
-        if let Some(d) = self.general.next_change_after(date) {
-            next = Some(d);
-        }
-
-        // check all categories
-        for sched in self.per_category.values() {
-            if let Some(d) = sched.next_change_after(date) {
-                match next {
-                    Some(current) if d < current => next = Some(d),
-                    None => next = Some(d),
-                    _ => {}
-                }
-            }
-        }
-
-        next
-    }
-
     fn accumulated(&self, start: NaiveDate, end: NaiveDate) -> Money {
-        if end <= start {
-            return Money::ZERO;
-        }
-
         let mut total = Money::ZERO;
-        let mut cursor = start;
+        let mut cursor = start + TimeDelta::days(1);
 
-        while cursor < end {
-            let rate = self.general_budget_at(cursor);
-
-            let next_change = self.next_change_after(cursor);
-            let segment_end = next_change.unwrap_or(end).min(end);
-
-            let days: Money = (segment_end - cursor).num_days().into();
-            total += rate * days;
-
-            cursor = segment_end;
+        while cursor <= end {
+            total += self.general_budget_at(cursor);
+            cursor += TimeDelta::days(1);
         }
 
         total
@@ -207,7 +160,7 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
         let overspending = daily_spending - daily_budget;
         accumulated += overspending;
         result.push(accumulated);
-        current = current + chrono::Duration::days(1);
+        current = current + TimeDelta::days(1);
     }
 
     result
