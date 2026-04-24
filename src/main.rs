@@ -702,7 +702,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
             let year_fraction = (dec!(1.0) - dec!(1.5) * (stats.last_n_days.get(&365).unwrap().total - current_budget * dec!(365.0))/(current_budget * dec!(365.0))).max(BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
             let month_fraction = allowed_next_month / (current_budget * dec!(30.0)) * dec!(0.95);
-            let fraction = year_fraction.min(month_fraction);
+            let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
             writeln!(buf, "#align(center,text(fill: {color}, [You have overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
             writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
