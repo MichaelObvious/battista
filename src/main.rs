@@ -55,6 +55,11 @@ impl RateSchedule {
         self.changes.insert(date, rate);
     }
 
+    fn current_rate(&self) -> Money {
+        let today = Local::now().date_naive();
+        self.rate_at(today).unwrap_or(dec!(0.0))
+    }
+
     fn rate_at(&self, date: NaiveDate) -> Option<Money> {
         let mut last = None;
 
@@ -99,6 +104,7 @@ impl BudgetTimeline {
         base.max(category_sum)
     }
 
+    #[allow(unused)]
     fn category_budget_at(&self, category: &str, date: NaiveDate) -> Option<Money> {
         self.per_category.get(category).and_then(|s| s.rate_at(date))
     }
@@ -645,8 +651,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
 
     writeln!(buf, "= Budget").unwrap();
-    let mut budget_categories = budget.per_category.keys().collect::<Vec<_>>();
-    budget_categories.sort();
+    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.current_rate())).collect::<Vec<_>>();
+    budget_categories.sort_by_key(|(_,b)| -b);
     writeln!(buf, "#v(2em)").unwrap();
     writeln!(buf, "#columns(2, [").unwrap();
     writeln!(buf, "#align(center, text([*Monthly Budget*], 18pt)) ").unwrap();
@@ -655,8 +661,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     let mut total_allocated = dec!(0.0);
-    for category in budget_categories {
-        let current_category_budget = budget.category_budget_at(category, today).unwrap_or(dec!(0.0));
+    for (category, current_category_budget) in budget_categories {
         writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, current_category_budget * dec!(30.0), (current_category_budget / budget.current_general())*dec!(100.0)).unwrap();
         total_allocated += current_category_budget;
         writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
