@@ -701,7 +701,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         if allowed_next_month < current_budget * dec!(30.0) * dec!(0.75) {
             allowed_next_month = allowed_next_month.max(current_budget * dec!(30.0) * BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
         }
-        if allowed_next_month < budget.current_general() * dec!(30.0) && *accumulated.last().unwrap() > dec!(0.0) {
+        if allowed_next_month < budget.current_general() * dec!(30.0) || *accumulated.last().unwrap() > dec!(0.0) {
             writeln!(buf, "#pagebreak()").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
