@@ -8,7 +8,7 @@ use quick_xml::{Reader, events::Event};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-const LAST_N_DAYS: [u64; 4] = [7, 14, 30, 365];
+const LAST_N_DAYS: [u64; 5] = [7, 14, 30, 90, 365];
 
 type Category = String;
 type Money = Decimal;
@@ -609,7 +609,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         writeln!(buf, "))").unwrap();
         writeln!(buf, "").unwrap();
-        if n_days >= 28 {
+        if n_days >= 90 {
             writeln!(buf, "#v(2em)").unwrap();
             writeln!(buf, "").unwrap();
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
