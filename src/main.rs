@@ -662,15 +662,16 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     let mut total_allocated = dec!(0.0);
+    let total_budget = budget.accumulated_days(-30);
     for (category, monthly_budget) in budget_categories {
-        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / budget.accumulated_days(-30))*dec!(100.0)).unwrap();
+        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / total_budget)*dec!(100.0)).unwrap();
         total_allocated += monthly_budget;
         writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[_Allocated total_], [`{:.0}`], [`{:.0}%`],", total_allocated, total_allocated * dec!(100.0) / budget.accumulated_days(-30)).unwrap();
+    writeln!(buf, "[_Unllocated_], [_`{:.0}`_], [_`{:.0}%`_],", total_budget - total_allocated, dec!(100.0) - total_allocated * dec!(100.0) / total_budget).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[*Total*], [`{:.0}`], ", budget.accumulated_days(-30)).unwrap();
+    writeln!(buf, "[*Total*], [`{:.0}`], ", total_budget).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "").unwrap();
