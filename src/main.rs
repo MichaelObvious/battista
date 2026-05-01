@@ -428,8 +428,6 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
         }
     }
 
-    println!("{:?}", budget);
-
     return (transactions, budget);
 }
 
