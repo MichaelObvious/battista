@@ -668,7 +668,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * dec!(100.0) / budget.accumulated_days(-30)).unwrap();
+    writeln!(buf, "[_Allocated total_], [{:.0}], [`{:.0}%`],", total_allocated, total_allocated * dec!(100.0) / budget.accumulated_days(-30)).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Total*], [`{:.0}`], ", budget.accumulated_days(-30)).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
