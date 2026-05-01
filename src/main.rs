@@ -55,6 +55,7 @@ impl RateSchedule {
         self.changes.insert(date, rate);
     }
 
+    #[allow(unused)]
     fn current_rate(&self) -> Money {
         let today = Local::now().date_naive();
         self.rate_at(today).unwrap_or(dec!(0.0))
@@ -651,7 +652,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
 
     writeln!(buf, "= Budget").unwrap();
-    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.current_rate())).collect::<Vec<_>>();
+    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.accumulated(today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
     budget_categories.sort_by_key(|(_,b)| -b);
     writeln!(buf, "#v(2em)").unwrap();
     writeln!(buf, "#columns(2, [").unwrap();
@@ -661,13 +662,13 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     let mut total_allocated = dec!(0.0);
-    for (category, current_category_budget) in budget_categories {
-        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, current_category_budget * dec!(30.0), (current_category_budget / budget.current_general())*dec!(100.0)).unwrap();
-        total_allocated += current_category_budget;
+    for (category, monthly_budget) in budget_categories {
+        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / budget.accumulated_days(-30))*dec!(100.0)).unwrap();
+        total_allocated += monthly_budget;
         writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * dec!(100.0) / budget.current_general()).unwrap();
+    writeln!(buf, "[_Allocated total_], [], [`{:.0}%`],", total_allocated * dec!(100.0) / budget.accumulated_days(-30)).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Total*], [`{:.0}`], ", budget.current_general() * dec!(30.0)).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
