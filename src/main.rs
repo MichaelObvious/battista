@@ -721,11 +721,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    [*Period* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*dec!(100.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-            writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * next_month_budget).unwrap();
+            writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * next_month_budget * dec!(7.0) / dec!(30.0)).unwrap();
+            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * min_budget * dec!(7.0) / dec!(30.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * next_month_budget / dec!(30.0)).unwrap();
+            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget / dec!(30.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "))").unwrap();
             let overspent_total = accumulated.last().unwrap().clone();
