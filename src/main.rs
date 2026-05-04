@@ -683,11 +683,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", total_budget).unwrap();
+    writeln!(buf, "    [_Next month_], align(right, [`{:.0}`]),", budget.accumulated_days(-30)).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", total_budget * dec!(7.0) / dec!(30.0)).unwrap();
+    writeln!(buf, "    [_Next week_],  align(right, [`{:.0}`]),", budget.accumulated_days(-7)).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", total_budget / dec!(30.0)).unwrap();
+    writeln!(buf, "    [_Next day_],   align(right, [`{:.0}`]),", budget.current_general()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
