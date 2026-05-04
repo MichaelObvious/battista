@@ -860,7 +860,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "    plot.add(").unwrap();
                 writeln!(buf, "        {},", recovery_points_str).unwrap();
                 writeln!(buf, "        fill: true,").unwrap();
-                writeln!(buf, "        style: (stroke: (dash: \"dashed\", paint: red), fill: none),").unwrap();
+                writeln!(buf, "        style: (stroke: (dash: \"dashed\", paint: gradient.linear((black.transparentize(67%), 0%), (black.transparentize(85%), 100%), dir: direction.ltr)), fill: none),").unwrap();
                 writeln!(buf, "    )").unwrap();
                 writeln!(buf, "    }}").unwrap();
                 writeln!(buf, ")").unwrap();
