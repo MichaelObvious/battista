@@ -683,11 +683,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", budget.current_general() * dec!(30.0)).unwrap();
+    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", total_budget).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", budget.current_general() * dec!(7.0)).unwrap();
+    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", total_budget * dec!(7.0) / dec!(30.0)).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", budget.current_general()).unwrap();
+    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", total_budget / dec!(30.0)).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
@@ -697,13 +697,13 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: Money = dec!(0.55);
     {
         let mut accumulated = accumulated_overspending(&stats.transactions, budget);
-        let current_budget = budget.current_general();
+        let current_budget = total_budget / dec!(30.0);
         let mut allowed_next_month = current_budget * dec!(30.0) + budget.accumulated(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
         let color = if allowed_next_month < current_budget * dec!(30.0) * dec!(0.80) { "red" } else if allowed_next_month < current_budget * dec!(30.0) * dec!(0.92) { "orange" } else { "black" };
         if allowed_next_month < current_budget * dec!(30.0) * dec!(0.75) {
             allowed_next_month = allowed_next_month.max(current_budget * dec!(30.0) * BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
         }
-        if allowed_next_month < budget.current_general() * dec!(30.0) || *accumulated.last().unwrap() > dec!(0.0) {
+        if allowed_next_month < current_budget * dec!(30.0) || *accumulated.last().unwrap() > dec!(0.0) {
             writeln!(buf, "#pagebreak()").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
