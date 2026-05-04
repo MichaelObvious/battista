@@ -694,21 +694,21 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#v(2fr)").unwrap();
 
     writeln!(buf, "").unwrap();
-    const BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION: Money = dec!(0.55);
+    const RECOVERY_PLAN_MIN_BUDGET_FRACTION: Money = dec!(0.55);
     {
         let mut accumulated = accumulated_overspending(&stats.transactions, budget);
-        let current_budget = total_budget / dec!(30.0);
-        let mut allowed_next_month = current_budget * dec!(30.0) + budget.accumulated(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
-        let color = if allowed_next_month < current_budget * dec!(30.0) * dec!(0.80) { "red" } else if allowed_next_month < current_budget * dec!(30.0) * dec!(0.92) { "orange" } else { "black" };
-        if allowed_next_month < current_budget * dec!(30.0) * dec!(0.75) {
-            allowed_next_month = allowed_next_month.max(current_budget * dec!(30.0) * BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
+        let next_month_budget = budget.accumulated_days(-30);
+        let mut allowed_next_month = next_month_budget + budget.accumulated_days(30) - stats.last_n_days.get(&30).unwrap().total;
+        let color = if allowed_next_month < next_month_budget * dec!(0.80) { "red" } else if allowed_next_month < next_month_budget * dec!(0.92) { "orange" } else { "black" };
+        if allowed_next_month < next_month_budget * dec!(0.75) {
+            allowed_next_month = allowed_next_month.max(next_month_budget * RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
         }
-        if allowed_next_month < current_budget * dec!(30.0) || *accumulated.last().unwrap() > dec!(0.0) {
+        if allowed_next_month < next_month_budget || *accumulated.last().unwrap() > dec!(0.0) {
             writeln!(buf, "#pagebreak()").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
-            let year_fraction = (dec!(1.0) - dec!(2) * (stats.last_n_days.get(&365).unwrap().total - current_budget * dec!(365.0))/(current_budget * dec!(365.0))).max(BUDGET_RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
-            let month_fraction = allowed_next_month / (current_budget * dec!(30.0)) * dec!(0.95);
+            let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - budget.accumulated_days(-365))/(budget.accumulated_days(-365))).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
+            let month_fraction = allowed_next_month / (budget.accumulated_days(-30)) * dec!(0.95);
             let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
             writeln!(buf, "#align(center,text(fill: {color}, [You have overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
@@ -716,17 +716,26 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    [*Period* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*dec!(100.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-            writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * current_budget * dec!(30.0)).unwrap();
+            writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * next_month_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * current_budget * dec!(7.0)).unwrap();
+            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * next_month_budget * dec!(7.0) / dec!(30.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * current_budget).unwrap();
+            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * next_month_budget / dec!(30.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "))").unwrap();
             let overspent_total = accumulated.last().unwrap().clone();
 
             if overspent_total > dec!(0.0) {
-                let recover_time_days = (overspent_total / ((dec!(1.0) - fraction) * current_budget) * dec!(1.1)).ceil();
+                let recover_time_days = (Decimal::from({
+                    let mut overspent = overspent_total;
+                    let fraction = dec!(1.0) - fraction;
+                    let mut days = 0;
+                    while days < 366*100 && overspent > dec!(0.0) {
+                        overspent -= budget.general_budget_at(today + TimeDelta::days(days)) * fraction;
+                        days += 1;
+                    }
+                    days
+                }) * dec!(1.1)).ceil();
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 writeln!(buf, "").unwrap();
                 writeln!(buf, "#v(1em)").unwrap();
@@ -779,9 +788,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                     let mut points = Vec::with_capacity(recover_time_days.ceil().as_i128() as usize);
                     let mut overspent = overspent_total;
                     let mut idx = accumulated_length - 1;
+                    let fraction = dec!(1.0) - fraction;
                     while overspent > dec!(0.0) && points.len() < PREDICTION_LOOKAHEAD_DAYS {
                         points.push((idx, overspent));
-                        overspent -= (dec!(1.0) - fraction) * current_budget;
+                        let days_delta = idx - accumulated_length + 1;
+                        overspent -= fraction * budget.general_budget_at(today + TimeDelta::days(days_delta as i64));
                         idx += 1; 
                     }
                     if overspent <= dec!(0.0) {
@@ -832,7 +843,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 max_y += delta;
                 min_y -= delta;
                 for i in important_days {
-                    let y = all_points[&i];
+                    let y = all_points.get(&i).unwrap_or(&dec!(0.0)).to_owned();
                     let color = if y > dec!(0.0) { "red" } else { "green" };
                     writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", i, min_y, i, max_y, color, color, color, color).unwrap();    
                 }
