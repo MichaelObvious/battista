@@ -678,16 +678,21 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#colbreak()").unwrap();
     writeln!(buf, "").unwrap();
 
+    let min_budget = (budget.accumulated_days(-30)
+        .min(budget.accumulated_days(-7) * dec!(30) / dec!(7))
+        .min(budget.current_general() * dec!(30)) / dec!(30)).round_dp(2);
+
     writeln!(buf, "#align(center, text([*Per Period*], 18pt)) ").unwrap();
+    writeln!(buf, "#align(center, [_Conservative indicative values_]) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "    [_Next month_], align(right, [`{:.0}`]),", budget.accumulated_days(-30)).unwrap();
+    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", min_budget * dec!(30)).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Next week_],  align(right, [`{:.0}`]),", budget.accumulated_days(-7)).unwrap();
+    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", min_budget * dec!(7)).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Next day_],   align(right, [`{:.0}`]),", budget.current_general()).unwrap();
+    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", min_budget).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
