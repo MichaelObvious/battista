@@ -758,13 +758,13 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 let recover_date_drift_symbol = match is_recovery_getting_closer(&accumulated, fraction, budget) {
-                    Ordering::Less => "#text(10pt, sym.arrow.br)",
-                    Ordering::Equal => "#text(10pt, #sym.arrow.r)",
-                    Ordering::Greater => "#text(10pt, #sym.arrow.tr)",
+                    Ordering::Less => "#sub(sym.arrow.br)",
+                    Ordering::Equal => "#sub(sym.arrow.r)",
+                    Ordering::Greater => "#sub(sym.arrow.tr)",
                 };
                 writeln!(buf, "").unwrap();
                 writeln!(buf, "#v(1em)").unwrap();
-                writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0} days {}).])", overspent_total, color, recover_date.format("%B %-d, %Y"), recover_time_days, recover_date_drift_symbol).unwrap();
+                writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0}{} days).])", overspent_total, color, recover_date.format("%B %-d, %Y"), recover_time_days, recover_date_drift_symbol).unwrap();
                 writeln!(buf, "]))").unwrap();
                 
 
