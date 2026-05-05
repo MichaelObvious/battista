@@ -754,8 +754,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "))").unwrap();
             let overspent_total = accumulated.last().unwrap().clone();
 
+            let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
             if overspent_total > dec!(0.0) {
-                let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 let recover_date_drift_symbol = match is_recovery_getting_closer(&accumulated, fraction, budget) {
                     Ordering::Less => "#sub(sym.arrow.br)",
@@ -765,9 +765,10 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "").unwrap();
                 writeln!(buf, "#v(1em)").unwrap();
                 writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0}{} days).])", overspent_total, color, recover_date.format("%B %-d, %Y"), recover_time_days, recover_date_drift_symbol).unwrap();
-                writeln!(buf, "]))").unwrap();
+            }
+            writeln!(buf, "]))").unwrap();
                 
-
+            if overspent_total > dec!(0.0) {
                 let accumulated_length = accumulated.len().min(365);
                 let (data_str, fill_gradient, stroke_gradient, accum_points) = {
                     let mut data_str_buf = Vec::new();
