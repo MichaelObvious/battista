@@ -581,7 +581,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         for (category, amount) in stats.by_category.iter() {
             let allowed_amount = if let Some(allowed_amount) = budget.category_accumulated(category, today - TimeDelta::days(n_days as i64), today) {
-                if budget.accumulated(today - TimeDelta::days(n_days as i64), today) > stats.total {
+                if budget.accumulated(today - TimeDelta::days(n_days as i64), today) > stats.total || allowed_amount - amount <= dec!(0.0) {
                     let allowed = allowed_amount - *amount;
                     (format!("{:.0}", allowed), format!("{:.0}%", (amount*dec!(100.0))/allowed_amount), if allowed >= dec!(0.0)  {
                         if allowed / allowed_amount >= dec!(0.25) {
