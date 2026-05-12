@@ -344,7 +344,7 @@ fn validate_amount(amount: &str) -> bool {
     if amount_str.is_empty() {
         return false;
     }
-    
+
     if let Ok(parsed) = amount_str.parse::<Money>() {
         parsed.fract().mantissa() < 100
     } else {
@@ -388,12 +388,12 @@ fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start
         overspent -= budget.general_budget_at(start_date + TimeDelta::days(days)) * fraction;
         days += 1;
     }
-    return days;    
+    return days;
 }
 
 fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fraction: Decimal, budget: &BudgetTimeline) -> Ordering {
     let today = Local::now().date_naive();
-    let window = 7.min(overspent_history.len() - 1) as i64; 
+    let window = 7.min(overspent_history.len() - 1) as i64;
     let mut total = 0;
     for i in (-window)..0 {
         let overspent_total = overspent_history[(overspent_history.len()as i64 + i - 1) as usize];
@@ -515,7 +515,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
             if !tsc.yearly.contains_key(&year) {
                 tsc.yearly.insert(year, TempStats::default());
             }
-            
+
             if !tsc.monthly.contains_key(&month_idx) {
                 tsc.monthly.insert(month_idx, TempStats::default());
             }
@@ -767,7 +767,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "#align(center, [_By keeping this budget, you should be able to recover from your overspending_ (#text([`{:.0}`], fill: {})) _by_\\ *{}* #h(1em) (in {:.0}{} days).])", overspent_total, color, recover_date.format("%B %-d, %Y"), recover_time_days, recover_date_drift_symbol).unwrap();
             }
             writeln!(buf, "]))").unwrap();
-                
+
             if overspent_total > dec!(0.0) {
                 let accumulated_length = accumulated.len().min(365);
                 let (data_str, fill_gradient, stroke_gradient, accum_points) = {
@@ -819,7 +819,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                         points.push((idx, overspent));
                         let days_delta = idx - accumulated_length + 1;
                         overspent -= fraction * budget.general_budget_at(today + TimeDelta::days(days_delta as i64));
-                        idx += 1; 
+                        idx += 1;
                     }
                     if overspent <= dec!(0.0) {
                         points.push((idx, dec!(0.0)));
@@ -828,7 +828,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                         points.push((idx, dec!(0.0)));
                         idx += 1;
                     }
-                    
+
                     let mut data_str_buf = Vec::new();
                     for (i, x) in points.iter() {
                         write!(data_str_buf, "({},{}),", i, x).unwrap();
@@ -836,42 +836,58 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                     (format!("({})", String::from_utf8(data_str_buf).unwrap()), points)
                 };
 
-                let important_days = {
+                let (important_indices, important_dates) = {
                     let mut first_days = vec![];
+                    let mut first_dates = vec![];
                     let mut current = today - TimeDelta::days(accumulated_length as i64);
-                    let mut idx = 0; 
+                    let mut idx = 0;
                     while current <= today + TimeDelta::days(PREDICTION_LOOKAHEAD_DAYS as i64) {
                         if current.day() == 1 {
                             first_days.push(idx);
+                            first_dates.push(current);
                         }
                         current += TimeDelta::days(1);
                         idx += 1;
                     }
-                    first_days
+                    (first_days, first_dates)
                 };
 
                 let all_points =  accum_points.into_iter().map(|x| (x.0, *x.1)).chain(recovery_points.into_iter()).collect::<HashMap<_,_>>();
 
+                const CANVAS_SIZE_X: usize = 15;
                 writeln!(buf, "#v(1em)").unwrap();
                 writeln!(buf, "#align(center,").unwrap();
                 writeln!(buf, "cetz.canvas({{").unwrap();
                 writeln!(buf, "import cetz.draw: *").unwrap();
                 writeln!(buf, "import cetz-plot: *").unwrap();
-                writeln!(buf).unwrap();
-                writeln!(buf, "plot.plot(").unwrap();
-                writeln!(buf, "    size: (15, 3),").unwrap();
-                writeln!(buf, "    axis-style: none,").unwrap();
-                writeln!(buf, "    {{").unwrap();
-
                 let mut max_y = all_points.iter().map(|x| *x.1).max().unwrap();
                 let mut min_y = all_points.iter().map(|x| *x.1).min().unwrap();
                 let delta = (max_y - min_y) * dec!(0.075);
                 max_y += delta;
                 min_y -= delta;
-                for i in important_days {
-                    let y = all_points.get(&i).unwrap_or(&dec!(0.0)).to_owned();
+                let last_pt = vec![all_points.len()];
+                for ((x, next_x), d) in important_indices.iter().zip(important_indices.iter().chain(last_pt.iter()).skip(1)).zip(important_dates) {
+                    let mut avg_y = dec!(0.0);
+                    for i in *x..*next_x {
+                        avg_y += all_points[&i];
+                    }
+                    avg_y /= Money::from(next_x - x);
+
+                    // let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
+                    let color = if avg_y > dec!(0.0) { "red" } else { "green" };
+                    // println!("{} {} {} {} {}", d.month(), x, next_x, avg_y, color);
+                    // writeln!(buf, "    content(({}, {}), [_{:02}_])", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month()).unwrap();
+                    writeln!(buf, "    content(({},{}), text([_{:02}_], 24pt, fill: {}.transparentize(92.5%)), anchor: \"south-west\")", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month(), color).unwrap();
+                }
+                writeln!(buf).unwrap();
+                writeln!(buf, "plot.plot(").unwrap();
+                writeln!(buf, "    size: ({}, 3),", CANVAS_SIZE_X).unwrap();
+                writeln!(buf, "    axis-style: none,").unwrap();
+                writeln!(buf, "    {{").unwrap();
+                for x in important_indices {
+                    let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
                     let color = if y > dec!(0.0) { "red" } else { "green" };
-                    writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", i, min_y, i, max_y, color, color, color, color).unwrap();    
+                    writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", x, min_y, x, max_y, color, color, color, color).unwrap();
                 }
                 writeln!(buf, "    plot.add(").unwrap();
                 writeln!(buf, "        {},", data_str).unwrap();
@@ -890,7 +906,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         }
     }
     writeln!(buf, "").unwrap();
-    
+
 
     writeln!(buf, "").unwrap();
     writeln!(buf, "= 5 Year Overview").unwrap();
@@ -913,7 +929,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             total += y_stats.total;
             total_days += d_total_days;
         }
-    
+
         let average: Money = total * dec!(365.0) / Decimal::from(total_days);
         let average_budget: Money = budget.accumulated_days(total_days)*dec!(365.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
@@ -927,11 +943,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         } else {
             writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
         }
-        
+
         writeln!(buf).unwrap();
         writeln!(buf, "#v(1em)").unwrap();
         writeln!(buf).unwrap();
-            
+
         writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
@@ -980,7 +996,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             total += m_stats.total;
             total_days += d_total_days;
         }
-    
+
         let average = total * dec!(30.0) / Decimal::from(total_days);
         let average_budget = budget.accumulated_days(total_days)*dec!(30.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
@@ -994,11 +1010,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         } else {
             writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
         }
-        
+
         writeln!(buf).unwrap();
         writeln!(buf, "#v(1em)").unwrap();
         writeln!(buf).unwrap();
-            
+
         writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
@@ -1034,7 +1050,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         for (_, m_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
             total += m_stats.total;
         }
-    
+
         let average = total * dec!(7.0) / Decimal::from(total_days);
         let average_budget = budget.accumulated_days(total_days)*dec!(7.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
@@ -1048,11 +1064,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         } else {
             writeln!(buf, "#text(8pt, [You are on budget])])").unwrap();
         }
-        
+
         writeln!(buf).unwrap();
         writeln!(buf, "#v(1em)").unwrap();
         writeln!(buf).unwrap();
-            
+
         writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
@@ -1096,10 +1112,10 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let mut reader = Reader::from_str(&content);
     reader.config_mut().trim_text(true);
-    
+
     let mut budgets = Vec::new();
     let mut transactions = Vec::new();
-    
+
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1110,12 +1126,12 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                         let mut amount = None;
                         let mut duration = None;
                         let mut date = None;
-                        
+
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
                             let key = String::from_utf8_lossy(&attr.key.0).to_string();
                             let value = String::from_utf8_lossy(&attr.value).to_string();
-                            
+
                             match key.as_str() {
                                 "category" => category = Some(value),
                                 "amount" => amount = Some(value),
@@ -1124,7 +1140,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                                 _ => {}
                             }
                         }
-                        
+
                         if let (Some(amount), Some(duration), Some(date)) = (amount, duration, date) {
                             budgets.push(RawBudget {
                                 category,
@@ -1140,12 +1156,12 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                         let mut date = None;
                         let mut payment_method = None;
                         let mut note = None;
-                        
+
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
                             let key = String::from_utf8_lossy(&attr.key.0).to_string();
                             let value = String::from_utf8_lossy(&attr.value).to_string();
-                            
+
                             match key.as_str() {
                                 "amount" => amount = Some(value),
                                 "category" => category = Some(value),
@@ -1155,8 +1171,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                                 _ => {}
                             }
                         }
-                        
-                        if let (Some(amount), Some(category), Some(date), Some(payment_method)) = 
+
+                        if let (Some(amount), Some(category), Some(date), Some(payment_method)) =
                             (amount, category, date, payment_method) {
                             transactions.push(RawTransaction {
                                 amount,
@@ -1179,7 +1195,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
         }
         buf.clear();
     }
-    
+
     (budgets, transactions)
 }
 
@@ -1242,7 +1258,7 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
     };
 
     let mut content = String::new();
-    
+
     for e in entries {
         match e {
             Budget(budget) => {
@@ -1256,7 +1272,7 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
                         "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
                         budget.amount, budget.duration, budget.date
                     ));
-                }   
+                }
             },
             Transaction(transaction) => {
                 if transaction.note.is_empty() {
@@ -1272,9 +1288,9 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
                 }
             }
         }
-        
+
     }
-    
+
     let mut sorted_transactions = transactions.to_vec();
     sorted_transactions.sort_by(|a, b| {
         let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y")
@@ -1283,7 +1299,7 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
             .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
         date_b.cmp(&date_a)
     });
-    
+
     fs::write(file_path, content)
 }
 
@@ -1316,11 +1332,11 @@ fn get_options() -> (Option<PathBuf>, bool) {
 fn prompt_with_default(prompt: &str, default: &str) -> String {
     print!(" {} [{}] > ", prompt, default);
     io::stdout().flush().unwrap();
-    
+
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
     let input = input.trim().to_string();
-    
+
     if input.is_empty() {
         default.to_string()
     } else {
@@ -1332,11 +1348,11 @@ fn prompt_date_with_default(default: &str) -> String {
     let default_date = NaiveDate::parse_from_str(&default, "%d/%m/%Y").unwrap();
     print!(" Date [{}] (or 'today') > ", default);
     io::stdout().flush().unwrap();
-    
+
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
     let input = input.trim().to_string();
-    
+
     if input.is_empty() {
         default.to_string()
     } else if input.to_lowercase() == "today" {
@@ -1370,7 +1386,7 @@ fn prompt_date_with_default(default: &str) -> String {
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
     let (budgets, mut transactions) = parse_raw_xml(file_path);
-    
+
     let (mut default_date, mut default_category, mut default_payment_method) = if !transactions.is_empty() {
         let mut sorted_transactions = transactions.clone();
         sorted_transactions.sort_by(|a, b| {
@@ -1380,7 +1396,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
                 .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
             date_b.cmp(&date_a)
         });
-        
+
         let last = &sorted_transactions[0];
         (
             last.date.clone(),
@@ -1397,7 +1413,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
 
     let last_date = transactions.iter().map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap()).max().unwrap();
     let mut last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).map(|x| x.clone()).collect::<Vec<_>>();
-    
+
     let mut added_transaction_idx = 0;
     loop {
         added_transaction_idx += 1;
@@ -1422,7 +1438,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         }
         println!();
 
-        
+
         println!("Transaction data:");
         let date = prompt_date_with_default(&default_date);
         let amount = loop {
@@ -1431,7 +1447,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
             let amount_str = input.trim();
-            
+
             if validate_amount(amount_str) {
                 break amount_str.to_string();
             } else {
@@ -1448,7 +1464,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         } else {
             prompt_with_default("Category", &default_category)
         };
-        
+
         let payment_method = if default_payment_method.is_empty() {
             print!(" Payment Method > ");
             io::stdout().flush().unwrap();
@@ -1458,7 +1474,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         } else {
             prompt_with_default("Payment Method", &default_payment_method)
         };
-        
+
         print!(" Note (optional) > ");
         io::stdout().flush().unwrap();
         let mut note = String::new();
@@ -1468,7 +1484,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         default_category = category.clone();
         default_date = date.clone();
         default_payment_method = payment_method.clone();
-        
+
         let new_transaction = RawTransaction {
             amount,
             category: category.clone(),
@@ -1476,7 +1492,7 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             payment_method: payment_method.clone(),
             note,
         };
-        
+
         last_transactions.push(new_transaction.clone());
         transactions.push(new_transaction);
         write_xml_file(file_path, &budgets, &transactions)?;
@@ -1486,13 +1502,13 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         io::stdout().flush().unwrap();
         let mut response = String::new();
         io::stdin().read_line(&mut response).unwrap();
-        
+
         let continue_condition = response.trim().to_lowercase().starts_with("y") || response.trim().is_empty();
         if !continue_condition {
             break;
         }
     }
-    
+
     Ok(())
 }
 
@@ -1523,7 +1539,7 @@ fn main() {
     }
 
     let stats = get_stats(&transactions);
-    
+
     let mut out_path = path.clone();
     out_path.set_extension("typ");
     write_typ_report(&out_path, &stats, &budget, &path);
