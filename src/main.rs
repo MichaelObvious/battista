@@ -877,7 +877,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                     let color = if avg_y > dec!(0.0) { "red" } else { "green" };
                     // println!("{} {} {} {} {}", d.month(), x, next_x, avg_y, color);
                     // writeln!(buf, "    content(({}, {}), [_{:02}_])", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month()).unwrap();
-                    writeln!(buf, "    content(({},{}), text([_{:02}_], 24pt, fill: {}.transparentize(92.5%)), anchor: \"south-west\")", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month(), color).unwrap();
+                    writeln!(buf, "    content(({},{}), text([_{:02}_], 24pt, fill: {}.transparentize(90%)), anchor: \"south-west\")", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month(), color).unwrap();
                 }
                 writeln!(buf).unwrap();
                 writeln!(buf, "plot.plot(").unwrap();
