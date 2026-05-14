@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf
+    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::Command
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -1543,5 +1543,17 @@ fn main() {
     let mut out_path = path.clone();
     out_path.set_extension("typ");
     write_typ_report(&out_path, &stats, &budget, &path);
-    println!("[INFO] Detailed report saved in `{}`.", out_path.display());
+
+    let compile_output = Command::new("typst").arg("compile").arg(&out_path).output();
+    match compile_output {
+        Err(_) => {
+            println!("[ERROR] Unable to compile report. Typst source code saved in  `{}`.", out_path.display());
+        },
+        Ok(_) => {
+            let _ = fs::remove_file(&out_path);
+            let mut out_pdf_path = out_path;
+            out_pdf_path.set_extension("pdf");
+            println!("[INFO] Detailed report saved in `{}`.", out_pdf_path.display());
+        }
+    }
 }

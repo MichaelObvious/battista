@@ -1,6 +1,6 @@
 [package]
 name = "battista"
-version = "1.5.23"
+version = "1.6.0"
 edition = "2024"
 
 [dependencies]
