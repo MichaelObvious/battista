@@ -1236,11 +1236,32 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
                 (Budget(b1), Budget(b2)) => {
                     let b1_date = NaiveDate::parse_from_str(&b1.date, "%d/%m/%Y").unwrap();
                     let b2_date = NaiveDate::parse_from_str(&b2.date, "%d/%m/%Y").unwrap();
-                    if b1_date == b2_date {
-                            (b2.amount.parse::<Money>().unwrap()).partial_cmp(&b1.amount.parse::<Money>().unwrap()).unwrap()
-                    } else {
-                        b2_date.cmp(&b1_date)
+                    match (&b1.category, &b2.category) {
+                        (Some(_), Some(_)) | (None, None) => {
+                            match b2_date.cmp(&b1_date) {
+                                Ordering::Equal => (b2.amount.parse::<Money>().unwrap() / b2.duration.parse::<Decimal>().unwrap()).partial_cmp(&(b1.amount.parse::<Money>().unwrap()/ b1.duration.parse::<Decimal>().unwrap())).unwrap(),
+                                x => x,
+                            }
+                        },
+                        (Some(_), None) => {
+                            match b2_date.cmp(&b1_date) {
+                                Ordering::Equal => {
+                                    Ordering::Greater
+                                },
+                                x => x
+                            }
+                            
+                        },
+                        (None, Some(_)) => {
+                            match b2_date.cmp(&b1_date) {
+                                Ordering::Equal => {
+                                    Ordering::Less
+                                },
+                                x => x
+                            }
+                        }
                     }
+                    
                 },
                 (Transaction(t1), Transaction(t2)) => {
                     let t1_date = NaiveDate::parse_from_str(&t1.date, "%d/%m/%Y").unwrap();
