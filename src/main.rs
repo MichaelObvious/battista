@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::Command
+    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -444,11 +444,14 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     });
                 },
                 x => {
-                    println!("[ERROR]: Unknown tag: `{}`", x);
+                    eprintln!("[ERROR]: Unknown tag: `{}`.", x);
                 },
             },
             Ok(_) => {},
-            Err(e) => println!("[ERROR]: XML parsing error `{}`", e),
+            Err(e) => {
+                eprintln!("[ERROR]: XML parsing error: `{}`.", e);
+                exit(1);
+            }
         }
     }
 
@@ -986,7 +989,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "([{}], {}),", y, y_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (16, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1202,8 +1205,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                println!("[ERROR]: XML parsing error `{}`", e);
-                break;
+                eprintln!("[ERROR]: XML parsing error `{}`", e);
+                exit(1);
             }
             _ => {}
         }
@@ -1380,18 +1383,18 @@ fn prompt_date_with_default(default: &str) -> String {
                 1 => format!("{:02}/{:02}/{}", input.parse::<u32>().unwrap(), default_date.month(), default_date.year()),
                 2 => format!("{:02}/{:02}/{}", numbers[0], numbers[1], default_date.year()),
                 _ =>  {
-                    println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+                    eprintln!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
                     prompt_date_with_default(default)
                 },
             };
             if NaiveDate::parse_from_str(&corrected_input, "%d/%m/%Y").is_ok() {
                 corrected_input
             } else {
-                println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+                eprintln!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
                 prompt_date_with_default(default)
             }
         } else {
-            println!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
+            eprintln!("[ERROR] Invalid date format. Please use dd/mm/yyyy.");
             prompt_date_with_default(default)
         }
     }
@@ -1532,7 +1535,7 @@ fn main() {
     if path.is_none() {
         eprintln!("[ERROR] No file provided.");
         print_usage();
-        return;
+        exit(1);
     }
 
     assert!(path.is_some(), "Rust has a problem here.");
@@ -1541,7 +1544,10 @@ fn main() {
     if add {
         match add_transactions_interactive(&path) {
             Ok(_) => println!("[INFO] Transaction addition completed."),
-            Err(e) => eprintln!("[ERROR] Failed to add transactions: {}", e),
+            Err(e) => {
+                eprintln!("[ERROR] Failed to add transactions: `{}`.", e);
+                exit(1);
+            },
         }
     }
 
@@ -1561,7 +1567,9 @@ fn main() {
     let compile_output = Command::new("typst").arg("compile").arg(&out_path).output();
     match compile_output {
         Err(_) => {
-            println!("[ERROR] Unable to compile report. Typst source code saved in  `{}`.", out_path.display());
+            eprintln!("[ERROR] Unable to compile report.");
+            println!("[INFO] Typst source code saved in  `{}`.", out_path.display());
+            exit(1);
         },
         Ok(_) => {
             let _ = fs::remove_file(&out_path);
