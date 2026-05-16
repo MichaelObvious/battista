@@ -1294,12 +1294,12 @@ fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[Ra
             Transaction(transaction) => {
                 if transaction.note.is_empty() {
                     content.push_str(&format!(
-                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\">\n",
+                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\"/>\n",
                         transaction.amount, transaction.category, transaction.date, transaction.payment_method
                     ));
                 } else {
                     content.push_str(&format!(
-                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\">\n",
+                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\"/>\n",
                         transaction.amount, transaction.category, transaction.date, transaction.payment_method, transaction.note
                     ));
                 }
