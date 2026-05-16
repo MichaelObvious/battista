@@ -572,6 +572,18 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     return tsc.into_stats_collection();
 }
 
+fn percentage_to_color(x: Decimal) -> &'static str {
+    if dec!(0.0) <= x && x < dec!(0.85) {
+        return "green";
+    } else if dec!(0.85) <= x && x <= dec!(1.00) {
+        return "orange";
+    } else if dec!(1.0) < x {
+        return "red";
+    } else {
+        unreachable!()
+    }
+}
+
 fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTimeline, n_days: u64) {
     let today = Local::now().date_naive();
     let stats = stats.last_n_days.get(&n_days).unwrap();
@@ -584,7 +596,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
                 if budget.accumulated(today - TimeDelta::days(n_days as i64), today) > stats.total || allowed_amount - amount <= dec!(0.0) {
                     let allowed = allowed_amount - *amount;
                     (format!("{:.0}", allowed), format!("{:.0}%", (amount*dec!(100.0))/allowed_amount), if allowed >= dec!(0.0)  {
-                        if allowed / allowed_amount >= dec!(0.25) {
+                        if allowed / allowed_amount >= dec!(0.15) {
                             "green"
                         } else {
                             "orange"
@@ -595,7 +607,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
                 } else {
                     let allowed = allowed_amount - *amount;
                     (String::default(), format!("{:.0}%", (amount*dec!(100.0))/allowed_amount), if allowed >= dec!(0.0)  {
-                        if allowed / allowed_amount >= dec!(0.25) {
+                        if allowed / allowed_amount >= dec!(0.15) {
                             "green"
                         } else {
                             "orange"
@@ -618,7 +630,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
                 let total_allowed = budget.accumulated(today - TimeDelta::days(n_days as i64), today);
                 let allowed = total_allowed - stats.total;
                 (format!("{:.0}", allowed), format!("{:.0}%", (stats.total*dec!(100.0))/total_allowed), if allowed >= dec!(0.0)  {
-                    if allowed / total_allowed >= dec!(0.25) {
+                    if allowed / total_allowed >= dec!(0.15) {
                         "green"
                     } else {
                         "orange"
@@ -688,9 +700,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     let mut total_allocated = dec!(0.0);
     let total_budget = budget.accumulated_days(-30);
     for (category, monthly_budget) in budget_categories {
-        writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / total_budget)*dec!(100.0)).unwrap();
         total_allocated += monthly_budget;
-        writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+        if monthly_budget > dec!(0.00) && (monthly_budget / total_budget)*dec!(100.0) >= dec!(1.0) {
+            writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / total_budget)*dec!(100.0)).unwrap();
+            writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
+        }
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[_Unallocated_], [_`{:.0}`_], [_`{:.0}%`_],", total_budget - total_allocated, dec!(100.0) - total_allocated * dec!(100.0) / total_budget).unwrap();
@@ -728,7 +742,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let mut accumulated = accumulated_overspending(&stats.transactions, budget);
         let next_month_budget = budget.accumulated_days(-30);
         let mut allowed_next_month = next_month_budget + budget.accumulated_days(30) - stats.last_n_days.get(&30).unwrap().total;
-        let color = if allowed_next_month < next_month_budget * dec!(0.80) { "red" } else if allowed_next_month < next_month_budget * dec!(0.92) { "orange" } else { "black" };
+        let color = if allowed_next_month < next_month_budget * dec!(0.67) { "red" } else if allowed_next_month < next_month_budget * dec!(0.85) { "orange" } else { "black" };
         if allowed_next_month < next_month_budget * dec!(0.75) {
             allowed_next_month = allowed_next_month.max(next_month_budget * RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
         }
@@ -933,7 +947,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average: Money = total * dec!(365.0) / Decimal::from(total_days);
         let average_budget: Money = budget.accumulated_days(total_days)*dec!(365.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
-        let color = if percentage > dec!(100.0) { "red" } else if percentage > dec!(75.0) { "orange" } else { "green" };
+        let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 365 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
         if percentage < dec!(95.0) {
@@ -1000,7 +1014,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * dec!(30.0) / Decimal::from(total_days);
         let average_budget = budget.accumulated_days(total_days)*dec!(30.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
-        let color = if percentage > dec!(100.0) { "red" } else if percentage > dec!(75.0) { "orange" } else { "green" };
+        let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
         if percentage < dec!(95.0) {
@@ -1054,7 +1068,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * dec!(7.0) / Decimal::from(total_days);
         let average_budget = budget.accumulated_days(total_days)*dec!(7.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
-        let color = if percentage > dec!(100.0) { "red" } else if percentage > dec!(75.0) { "orange" } else { "green" };
+        let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 7 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
         if percentage < dec!(95.0) {
