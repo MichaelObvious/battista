@@ -1056,7 +1056,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "([{:02}/{}], {}),", m, y%100, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (14, 7.5), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1108,7 +1108,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "(text(10pt,[{}]), {}),", label, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (12, 7), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
