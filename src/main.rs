@@ -1357,14 +1357,10 @@ fn get_options() -> (Option<PathBuf>, bool) {
     for arg in args {
         if arg == "add" {
             add = true;
-        }
-        let cur_path = PathBuf::from(arg);
-        match cur_path.try_exists() {
-            Ok(true) => {
-                path = Some(cur_path);
-                break;
-            }
-            _ => {}
+        } else {
+            let cur_path = PathBuf::from(arg);
+            path = Some(cur_path);
+            break;
         }
     }
 
@@ -1565,6 +1561,11 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let path = path.unwrap();
+    if path.try_exists().is_err() {
+        eprintln!("[ERROR] The provided filepath `{}` does not exist.", path.display());
+        exit(1);
+    }
+
 
     if add {
         match add_transactions_interactive(&path) {
@@ -1579,7 +1580,7 @@ fn main() {
     let (transactions, budget) = parse_file(&path);
 
     if transactions.is_empty() {
-        println!("[INFO] Provided file has no transactions. Exiting...");
+        println!("[INFO] Provided file `{}` has no transactions. Exiting...", path.display());
         return;
     }
 
