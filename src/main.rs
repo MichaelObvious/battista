@@ -401,7 +401,11 @@ fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fra
         total += rd - i;
     }
     let average = (total as f64 / window as f64).ceil() as i64;
-    return recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget).cmp(&average);
+    let days = recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget);
+    return match (days - average).abs() {
+        0 | 1 => Ordering::Equal,
+        _ => recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget).cmp(&average)
+    };
 }
 
 fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
