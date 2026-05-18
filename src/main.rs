@@ -1561,9 +1561,12 @@ fn main() {
 
     assert!(path.is_some(), "Rust has a problem here.");
     let path = path.unwrap();
-    if path.try_exists().is_err() {
-        eprintln!("[ERROR] The provided filepath `{}` does not exist.", path.display());
-        exit(1);
+    match path.try_exists() {
+        Ok(true) => {},
+        _ => {
+            eprintln!("[ERROR] The provided filepath `{}` does not exist.", path.display());
+            exit(1);
+        }
     }
 
 
