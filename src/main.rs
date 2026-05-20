@@ -747,38 +747,37 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "").unwrap();
 
     writeln!(buf, "= Budget").unwrap();
-    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.accumulated(today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
-    budget_categories.sort_by_key(|(_,b)| -b);
-    writeln!(buf, "#v(2em)").unwrap();
+    writeln!(buf, "#v(1fr)").unwrap();
     writeln!(buf, "#columns(2, [").unwrap();
     writeln!(buf, "#align(center, text([*Monthly Budget*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (left, right, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    let mut total_allocated = dec!(0.0);
     let total_budget = budget.accumulated_days(-30);
-    for (category, monthly_budget) in budget_categories {
+    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.accumulated(today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
+    budget_categories.sort_by_key(|(_,b)| -b);
+    let mut total_allocated = dec!(0.0);
+    for (category, monthly_budget) in budget_categories.iter() {
         total_allocated += monthly_budget;
-        if monthly_budget > dec!(0.00) && (monthly_budget / total_budget)*dec!(100.0) >= dec!(1.0) {
-            writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, (monthly_budget / total_budget)*dec!(100.0)).unwrap();
+        if *monthly_budget > dec!(0.00) && (monthly_budget / total_budget)*dec!(100.0) >= dec!(1.0) {
+            writeln!(buf, "[{}], [`{:.0}`], [`{:.0}%`],", category, monthly_budget, ((monthly_budget / total_budget)*dec!(100.0)).round()).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
         }
     }
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[_Unallocated_], [_`{:.0}`_], [_`{:.0}%`_],", total_budget - total_allocated, dec!(100.0) - total_allocated * dec!(100.0) / total_budget).unwrap();
+    writeln!(buf, "[_Unallocated_], [_`{:.0}`_], [_`{:.0}%`_],", total_budget - total_allocated, (dec!(100.0) - total_allocated * dec!(100.0) / total_budget).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Total*], [`{:.0}`], ", total_budget).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
-    writeln!(buf, "").unwrap();
-    writeln!(buf, "#colbreak()").unwrap();
-    writeln!(buf, "").unwrap();
 
     let min_budget = (budget.accumulated_days(-30)
-        .min(budget.accumulated_days(-7) * dec!(30) / dec!(7))
-        .min(budget.current_general() * dec!(30)) / dec!(30)).round_dp(2);
+    .min(budget.accumulated_days(-7) * dec!(30) / dec!(7))
+    .min(budget.current_general() * dec!(30)) / dec!(30)).round_dp(2);
 
+writeln!(buf, "#colbreak()").unwrap();
+    
     writeln!(buf, "#align(center, text([*Per Period*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, [_Conservative indicative values_]) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right), ").unwrap();
@@ -793,8 +792,64 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
-    writeln!(buf, "#v(2fr)").unwrap();
+    writeln!(buf, "#v(1.5fr)").unwrap();
+    
+    writeln!(buf, "#pagebreak()").unwrap();
 
+    writeln!(buf, "#v(1fr)").unwrap();
+    writeln!(buf, "#align(center)[").unwrap();
+    writeln!(buf, "  #text(18pt)[*Monthly Budget*]").unwrap();
+    writeln!(buf, "#v(2em)").unwrap();
+    
+    let mut total_allocated = dec!(0);
+    let mut slices  = Vec::new();
+
+    for (category, monthly_budget) in budget_categories.iter() {
+        total_allocated += monthly_budget;
+        if *monthly_budget > dec!(0) && (monthly_budget / total_budget) * dec!(100) >= dec!(1) {
+            slices.push((category.to_owned().to_owned(), *monthly_budget));
+        }
+    }
+    let unallocated = total_budget - total_allocated;
+    if unallocated > dec!(0) {
+        slices.push(("Unallocated".to_string(), unallocated));
+    }
+
+    writeln!(buf, "  #cetz.canvas({{").unwrap();
+    writeln!(buf, "    import cetz.draw: *").unwrap();
+    writeln!(buf, "import cetz-plot: *").unwrap();
+    writeln!(buf, "    chart.piechart(").unwrap();
+    writeln!(buf, "      (").unwrap();
+    for (category, amount) in &slices {
+        writeln!(buf, "        (\"{}\", {:.0}),", category.replace('"', "\\\""), amount).unwrap();
+    }
+    writeln!(buf, "      ),").unwrap();
+    writeln!(buf, "      start: 90deg,").unwrap();
+    writeln!(buf, "      stop: 450deg,").unwrap();
+    writeln!(buf, "      gap: 1deg,").unwrap();
+    writeln!(buf, "      value-key: 1,").unwrap();
+    writeln!(buf, "      label-key: 0,").unwrap();
+    writeln!(buf, "      legend: (label: none),").unwrap();
+    writeln!(buf, "      radius: 4.25,").unwrap();
+    writeln!(buf, "      inner-radius: 4.15,").unwrap();
+    writeln!(buf, "      slice-style: (").unwrap();
+    for (i,_) in slices.iter().enumerate() {
+        writeln!(buf, "        (fill: black.transparentize({}%), stroke: none),", (i as f64 / (slices.len()-1) as f64).sqrt() * 100.0).unwrap();
+    }
+    writeln!(buf, "      ),").unwrap();
+    writeln!(buf, "      inner-label: (content: \"%\", radius: 85%),").unwrap();
+    writeln!(buf, "      outer-label: (").unwrap();
+    writeln!(buf, "        content: (value, label) => {{").unwrap();
+    writeln!(buf, "                align(center)[#label #linebreak() (#text(0.7em, font: \"DejaVu Sans Mono\", [#value])) ]").unwrap();
+    writeln!(buf, "        }},").unwrap();
+    writeln!(buf, "        radius: 135%,").unwrap();
+    writeln!(buf, "      ),").unwrap();
+    writeln!(buf, "    )").unwrap();
+    writeln!(buf, "  }})").unwrap();
+    writeln!(buf, "]").unwrap();
+    writeln!(buf, "").unwrap();
+    writeln!(buf, "#v(1fr)").unwrap();
+    
     writeln!(buf, "").unwrap();
     const RECOVERY_PLAN_MIN_BUDGET_FRACTION: Money = dec!(0.55);
     
