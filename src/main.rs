@@ -23,12 +23,28 @@ struct Transaction {
 }
 
 #[derive(Debug, Clone)]
-struct RawBudget {
-    category: Option<String>,
-    amount: String,
-    duration: String,
-    date: String,
+enum DBEntry {
+    Budget{
+        category: Option<String>,
+        amount: String,
+        duration: String,
+        date: String,
+    },
+    Transaction{
+        amount: String,
+        category: String,
+        date: String,
+        payment_method: String,
+        note: String,
+    },
+    Extra{
+        amount: String,
+        date: String,
+        payment_method: String,
+        note: String,
+    }
 }
+
 
 #[derive(Debug, Clone)]
 struct RawTransaction {
@@ -39,9 +55,26 @@ struct RawTransaction {
     note: String,
 }
 
+
 impl fmt::Display for RawTransaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[TRANSACTION; {}; {}; {}; {}; `{}`]", self.date, self.category, self.amount, self.payment_method, self.note)
+        write!(f, "[TRANSACTION; {}; {}; {}; {}; `{}`]", self.date, self.category, self.amount, self.payment_method, self.note)    
+    }
+}
+
+impl From<DBEntry> for RawTransaction {
+    fn from(value: DBEntry) -> Self {
+        if let DBEntry::Transaction { amount, category, date, payment_method, note } = value {
+            RawTransaction{amount, category, date, payment_method, note}
+        } else {
+            panic!("Error converting to `RawTransaction`: Expected `DBEntry::Transaction`.");
+        }
+    }
+}
+
+impl From<RawTransaction> for DBEntry {
+    fn from(value: RawTransaction) -> Self {
+        DBEntry::Transaction{amount: value.amount, category: value.category, date: value.date, payment_method: value.payment_method, note: value.note}
     }
 }
 
@@ -91,6 +124,7 @@ impl RateSchedule {
 struct BudgetTimeline {
     general: RateSchedule,
     per_category: HashMap<Category, RateSchedule>,
+    extras: BTreeMap<NaiveDate, Money>,
 }
 
 impl BudgetTimeline {
@@ -100,7 +134,10 @@ impl BudgetTimeline {
     }
 
     fn general_budget_at(&self, date: NaiveDate) -> Money {
-        let base = self.general.rate_at(date).unwrap_or(Money::ZERO);
+        let base = 
+            self.general.rate_at(date).unwrap_or(Money::ZERO)
+            + self.extras.get(&date).unwrap_or(&Money::ZERO);
+        
         let category_sum = self.category_sum_at(date);
         base.max(category_sum)
     }
@@ -446,6 +483,21 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         note: if attributes.contains_key("note") { attributes.get("note").unwrap().to_owned() } else { String::default() },
                         payment_method: attributes.get("payment-method").unwrap().trim().to_owned(),
                     });
+                },
+                "extra" => {
+                    let attributes =  e.attributes().map(|x| {
+                        let x = x.unwrap();
+                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                    }).collect::<HashMap<_,_>>();
+
+                    assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
+                    let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
+                    let value = attributes.get("amount").unwrap().parse::<Money>().unwrap();
+                    if budget.extras.contains_key(&date) {
+                        *budget.extras.get_mut(&date).unwrap() += value;
+                    } else {
+                        budget.extras.insert(date, value);
+                    }
                 },
                 x => {
                     eprintln!("[ERROR]: Unknown tag: `{}`.", x);
@@ -1129,14 +1181,13 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     f.write(buf.as_slice()).unwrap();
 }
 
-fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
+fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
+    use DBEntry::*;
     let content = fs::read_to_string(file_path).unwrap_or_default();
     let mut reader = Reader::from_str(&content);
     reader.config_mut().trim_text(true);
 
-    let mut budgets = Vec::new();
-    let mut transactions = Vec::new();
-
+    let mut db_entries = vec![];
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
@@ -1163,7 +1214,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                         }
 
                         if let (Some(amount), Some(duration), Some(date)) = (amount, duration, date) {
-                            budgets.push(RawBudget {
+                            db_entries.push(Budget {
                                 category,
                                 amount,
                                 duration,
@@ -1195,7 +1246,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
 
                         if let (Some(amount), Some(category), Some(date), Some(payment_method)) =
                             (amount, category, date, payment_method) {
-                            transactions.push(RawTransaction {
+                            db_entries.push(Transaction{
                                 amount,
                                 category,
                                 date,
@@ -1203,7 +1254,37 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
                                 note: note.unwrap_or_default(),
                             });
                         }
-                    }
+                    },
+                    b"extra" => {
+                        let mut amount = None;
+                        let mut date = None;
+                        let mut payment_method = None;
+                        let mut note = None;
+
+                        for attr in e.attributes() {
+                            let attr = attr.unwrap();
+                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
+                            let value = String::from_utf8_lossy(&attr.value).to_string();
+
+                            match key.as_str() {
+                                "amount" => amount = Some(value),
+                                "date" => date = Some(value),
+                                "payment-method" => payment_method = Some(value),
+                                "note" => note = Some(value),
+                                _ => {}
+                            }
+                        }
+
+                        if let (Some(amount), Some(date), Some(payment_method)) =
+                            (amount, date, payment_method) {
+                            db_entries.push(Extra{
+                                amount,
+                                date,
+                                payment_method,
+                                note: note.unwrap_or_default(),
+                            });
+                        } 
+                    },
                     _ => {}
                 }
             }
@@ -1217,130 +1298,97 @@ fn parse_raw_xml(file_path: &PathBuf) -> (Vec<RawBudget>, Vec<RawTransaction>) {
         buf.clear();
     }
 
-    (budgets, transactions)
+    return db_entries;
 }
 
-fn write_xml_file(file_path: &PathBuf, budgets: &[RawBudget], transactions: &[RawTransaction]) -> std::io::Result<()> {
-    enum DBEntry<'a> {
-        Budget(&'a RawBudget),
-        Transaction(&'a RawTransaction),
-    }
+fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io::Result<()> {
     use DBEntry::*;
-
-    let entries = {
-        let mut entries = Vec::with_capacity(budgets.len() + transactions.len());
-        for b in budgets {
-            entries.push(Budget(b));
-        }
-        for t in transactions {
-            entries.push(Transaction(t));
-        }
-        entries.sort_by(|x,y|
-            match (x,y) {
-                (Budget(b1), Budget(b2)) => {
-                    let b1_date = NaiveDate::parse_from_str(&b1.date, "%d/%m/%Y").unwrap();
-                    let b2_date = NaiveDate::parse_from_str(&b2.date, "%d/%m/%Y").unwrap();
-                    match (&b1.category, &b2.category) {
-                        (Some(_), Some(_)) | (None, None) => {
-                            match b2_date.cmp(&b1_date) {
-                                Ordering::Equal => (b2.amount.parse::<Money>().unwrap() / b2.duration.parse::<Decimal>().unwrap()).partial_cmp(&(b1.amount.parse::<Money>().unwrap()/ b1.duration.parse::<Decimal>().unwrap())).unwrap(),
-                                x => x,
-                            }
-                        },
-                        (Some(_), None) => {
-                            match b2_date.cmp(&b1_date) {
-                                Ordering::Equal => {
-                                    Ordering::Greater
-                                },
-                                x => x
-                            }
-                            
-                        },
-                        (None, Some(_)) => {
-                            match b2_date.cmp(&b1_date) {
-                                Ordering::Equal => {
-                                    Ordering::Less
-                                },
-                                x => x
-                            }
-                        }
-                    }
-                    
-                },
-                (Transaction(t1), Transaction(t2)) => {
-                    let t1_date = NaiveDate::parse_from_str(&t1.date, "%d/%m/%Y").unwrap();
-                    let t2_date = NaiveDate::parse_from_str(&t2.date, "%d/%m/%Y").unwrap();
-                    if t1_date == t2_date {
-                            (t2.amount.parse::<Money>().unwrap()).partial_cmp(&t1.amount.parse::<Money>().unwrap()).unwrap()
-                    } else {
-                        t2_date.cmp(&t1_date)
-                    }
-                },
-                (Budget(b), Transaction(t)) => {
-                    let t_date = NaiveDate::parse_from_str(&t.date, "%d/%m/%Y").unwrap();
-                    let b_date = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
-                    if t_date == b_date {
-                        Ordering::Greater
-                    } else {
-                        t_date.cmp(&b_date)
-                    }
-                },
-                (Transaction(t),Budget(b)) => {
-                    let t_date = NaiveDate::parse_from_str(&t.date, "%d/%m/%Y").unwrap();
-                    let b_date = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y").unwrap();
-                    if t_date == b_date {
-                        Ordering::Less
-                    } else {
-                        b_date.cmp(&t_date)
-                    }
-                }
-            }
-        );
-        entries
+    let get_date = |e: &DBEntry| -> NaiveDate {
+        let s = match e {
+            Budget { date, .. } | Transaction { date, .. } | Extra { date, .. } => date,
+        };
+        NaiveDate::parse_from_str(s, "%d/%m/%Y").unwrap()
     };
+
+    let type_priority = |e: &DBEntry| -> u8 {
+        match e {
+            Transaction { .. } => 0,
+            Extra { .. }      => 1,
+            Budget { .. }      => 2,
+        }
+    };
+
+    db_entries.sort_by(|a, b| {
+        match get_date(b).cmp(&get_date(a)) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        match type_priority(a).cmp(&type_priority(b)) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        match (a, b) {
+            (Transaction { amount: a_amt, .. }, Transaction { amount: b_amt, .. })
+            | (Extra     { amount: a_amt, .. }, Extra      { amount: b_amt, .. }) => b_amt
+                .parse::<Money>()
+                .unwrap()
+                .partial_cmp(&a_amt.parse::<Money>().unwrap())
+                .unwrap(),
+
+            (
+                Budget { category: a_cat, amount: a_amt, duration: a_dur, .. },
+                Budget { category: b_cat, amount: b_amt, duration: b_dur, .. },
+            ) => {
+                match (a_cat.is_some(), b_cat.is_some()) {
+                    (false, true) => return Ordering::Less,
+                    (true, false) => return Ordering::Greater,
+                    _ => {}
+                }
+                let a_per_day = a_amt.parse::<Money>().unwrap()
+                    / a_dur.parse::<Money>().unwrap();
+                let b_per_day = b_amt.parse::<Money>().unwrap()
+                    / b_dur.parse::<Money>().unwrap();
+                b_per_day.partial_cmp(&a_per_day).unwrap()
+            }
+
+            _ => Ordering::Equal,
+        }
+    });
 
     let mut content = String::new();
 
-    for e in entries {
+    for e in db_entries {
         match e {
-            Budget(budget) => {
-                if let Some(ref category) = budget.category {
+            Budget{amount, category, duration, date} => {
+                if let Some(category) = category {
                     content.push_str(&format!(
                         "<budget category=\"{}\" amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                        category, budget.amount, budget.duration, budget.date
+                        category, amount, duration, date
                     ));
                 } else {
                     content.push_str(&format!(
                         "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                        budget.amount, budget.duration, budget.date
+                        amount, duration, date
                     ));
                 }
             },
-            Transaction(transaction) => {
-                if transaction.note.is_empty() {
-                    content.push_str(&format!(
-                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\"/>\n",
-                        transaction.amount, transaction.category, transaction.date, transaction.payment_method
-                    ));
-                } else {
-                    content.push_str(&format!(
-                        "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\"/>\n",
-                        transaction.amount, transaction.category, transaction.date, transaction.payment_method, transaction.note
-                    ));
-                }
+            Transaction{amount, category, date, payment_method, note} => {
+                content.push_str(&format!(
+                    "<transaction amount=\"{}\" category=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\"/>\n",
+                    amount, category, date, payment_method, note
+                ));
+            },
+            Extra{amount, date, payment_method, note} => {
+                content.push_str(&format!(
+                    "<extra amount=\"{}\" date=\"{}\" payment-method=\"{}\" note=\"{}\"/>\n",
+                    amount, date, payment_method, note
+                ));
             }
         }
 
     }
-
-    let mut sorted_transactions = transactions.to_vec();
-    sorted_transactions.sort_by(|a, b| {
-        let date_a = NaiveDate::parse_from_str(&a.date, "%d/%m/%Y")
-            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
-        let date_b = NaiveDate::parse_from_str(&b.date, "%d/%m/%Y")
-            .unwrap_or_else(|_| NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
-        date_b.cmp(&date_a)
-    });
 
     fs::write(file_path, content)
 }
@@ -1423,7 +1471,11 @@ fn prompt_date_with_default(default: &str) -> String {
 
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
-    let (budgets, mut transactions) = parse_raw_xml(file_path);
+    let mut entries = parse_raw_xml(file_path);
+
+    let mut transactions = entries.clone().into_iter().filter(
+        |x| match x {DBEntry::Transaction{..} => true, _ => false}
+    ).map(RawTransaction::from).collect::<Vec<_>>();
 
     let (mut default_date, mut default_category, mut default_payment_method) = if !transactions.is_empty() {
         let mut sorted_transactions = transactions.clone();
@@ -1532,8 +1584,9 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         };
 
         last_transactions.push(new_transaction.clone());
-        transactions.push(new_transaction);
-        write_xml_file(file_path, &budgets, &transactions)?;
+        transactions.push(new_transaction.clone());
+        entries.push(DBEntry::from(new_transaction));
+        write_xml_file(file_path, &mut entries)?;
         println!("[INFO] Transaction added.");
 
         print!("Add another transaction? (y/n) > ");
