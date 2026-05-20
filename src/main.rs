@@ -401,12 +401,16 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
     let mut accumulated = Money::ZERO;
     let mut current = first_date;
 
+    let per_day = {
+        let mut per_day_map = HashMap::with_capacity((last_date - first_date).num_days() as usize + 7);
+        for t in transactions {
+            per_day_map.entry(t.date).and_modify(|x| *x += t.value).or_insert(t.value);
+        }
+        per_day_map
+    };
+
     while current <= last_date {
-        let daily_spending: Money = transactions
-            .iter()
-            .filter(|t| t.date == current)
-            .map(|t| t.value)
-            .sum();
+        let daily_spending: Money = *per_day.get(&current).unwrap_or(&Money::ZERO);
         let daily_budget = budget.general_budget_at(current);
         let overspending = daily_spending - daily_budget;
         accumulated += overspending;
@@ -1711,6 +1715,8 @@ fn main() {
 
     let (transactions, budget) = parse_file(&path);
 
+    println!("[INFO] Read file `{}`.", path.display());
+
     if transactions.is_empty() {
         println!("[INFO] Provided file `{}` has no transactions. Exiting...", path.display());
         return;
@@ -1721,6 +1727,7 @@ fn main() {
     let mut out_path = path.clone();
     out_path.set_extension("typ");
     write_typ_report(&out_path, &stats, &budget, &path);
+    println!("[INFO] Analyzed spending and budget data.");
 
     let compile_output = Command::new("typst").arg("compile").arg(&out_path).output();
     match compile_output {
