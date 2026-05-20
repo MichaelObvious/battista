@@ -475,7 +475,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
                     }).collect::<HashMap<_,_>>();
 
-                    assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
+                    // assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
                     transactions.push(Transaction {
                         category: attributes.get("category").unwrap_or(&String::default()).trim().to_owned(),
                         date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
@@ -490,7 +490,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
                     }).collect::<HashMap<_,_>>();
 
-                    assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
+                    // assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
                     let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
                     let value = attributes.get("amount").unwrap().parse::<Money>().unwrap();
                     if budget.extras.contains_key(&date) {
@@ -797,22 +797,25 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
 
     writeln!(buf, "").unwrap();
     const RECOVERY_PLAN_MIN_BUDGET_FRACTION: Money = dec!(0.55);
+    
+    let mut accumulated = accumulated_overspending(&stats.transactions, budget);
+    let next_month_budget = budget.accumulated_days(-30);
+    let mut allowed_next_month = next_month_budget + budget.accumulated_days(30) - stats.last_n_days.get(&30).unwrap().total;
+    let overspent_total = accumulated.last().unwrap().clone();
+    let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - budget.accumulated_days(-365))/(budget.accumulated_days(-365))).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
+    let month_fraction = allowed_next_month / (budget.accumulated_days(-30)) * dec!(0.95);
+    let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
+    let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
+    writeln!(buf, "#pagebreak()").unwrap();
+    writeln!(buf, "#v(1fr)").unwrap();
     {
-        let mut accumulated = accumulated_overspending(&stats.transactions, budget);
-        let next_month_budget = budget.accumulated_days(-30);
-        let mut allowed_next_month = next_month_budget + budget.accumulated_days(30) - stats.last_n_days.get(&30).unwrap().total;
         let color = if allowed_next_month < next_month_budget * dec!(0.67) { "red" } else if allowed_next_month < next_month_budget * dec!(0.85) { "orange" } else { "black" };
         if allowed_next_month < next_month_budget * dec!(0.75) {
             allowed_next_month = allowed_next_month.max(next_month_budget * RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
         }
         if allowed_next_month < next_month_budget || *accumulated.last().unwrap() > dec!(0.0) {
-            writeln!(buf, "#pagebreak()").unwrap();
-            writeln!(buf, "#v(3em)").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
-            let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - budget.accumulated_days(-365))/(budget.accumulated_days(-365))).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
-            let month_fraction = allowed_next_month / (budget.accumulated_days(-30)) * dec!(0.95);
-            let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
-            writeln!(buf, "#align(center,text(fill: {color}, [You have overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
+            writeln!(buf, "#align(center,text(fill: {color}, [You overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
             writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
@@ -825,9 +828,6 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "))").unwrap();
-            let overspent_total = accumulated.last().unwrap().clone();
-
-            let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
             if overspent_total > dec!(0.0) {
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 let recover_date_drift_symbol = match is_recovery_getting_closer(&accumulated, fraction, budget) {
@@ -841,143 +841,159 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             }
             writeln!(buf, "]))").unwrap();
 
-            if overspent_total > dec!(0.0) {
-                let accumulated_length = accumulated.len().min(365);
-                let (data_str, fill_gradient, stroke_gradient, accum_points) = {
-                    let mut data_str_buf = Vec::new();
-                    if accumulated.len() > 365 {
-                        accumulated = accumulated.split_off(accumulated.len() - 365);
-                        assert!(accumulated.len() == 365);
-                    }
-                    for (i, x) in accumulated.iter().enumerate() {
-                        write!(data_str_buf, "({},{}),", i, x).unwrap();
-                    }
-
-                    let max = accumulated.to_owned().into_iter().reduce(Money::max).unwrap();
-                    let min = accumulated.to_owned().into_iter().reduce(Money::min).unwrap();
-                    let percentage = max * dec!(100.0)/(max-min);
-                    let epsilon = dec!(1e-1);
-
-                    if percentage <= dec!(0.0) {
-                        (
-                            format!("({})", String::from_utf8(data_str_buf).unwrap()),
-                            format!("(green.transparentize(100%), 0%), (green.transparentize(66%), 100%)"),
-                            format!("(green, 0%), (green, 100%)"),
-                            accumulated.iter().enumerate().collect::<Vec<_>>(),
-                        )
-                    } else if percentage >= dec!(100.0) {
-                        (
-                            format!("({})", String::from_utf8(data_str_buf).unwrap()),
-                            format!("(red.transparentize(33%), 0%), (red.transparentize(100%), 100%)"),
-                            format!("(red, 0%), (red, 100%)"),
-                            accumulated.iter().enumerate().collect::<Vec<_>>(),
-                        )
-                    } else {
-                        (
-                            format!("({})", String::from_utf8(data_str_buf).unwrap()),
-                            format!("(red.transparentize(33%), 0%), (red.transparentize(100%), {}%), (green.transparentize(100%), {}%), (green.transparentize(66%), 100%)", percentage - epsilon, percentage + epsilon),
-                            format!("(red, 0%), (red, {}%), (green, {}%), (green, 100%)", percentage - epsilon, percentage + epsilon),
-                            accumulated.iter().enumerate().collect::<Vec<_>>(),
-                        )
-                    }
-                };
-
-                const PREDICTION_LOOKAHEAD_DAYS: usize = 30;
-                let (recovery_points_str, recovery_points) = {
-                    let mut points = Vec::with_capacity(recover_time_days.ceil().as_i128() as usize);
-                    let mut overspent = overspent_total;
-                    let mut idx = accumulated_length - 1;
-                    let fraction = dec!(1.0) - fraction;
-                    while overspent > dec!(0.0) && points.len() < PREDICTION_LOOKAHEAD_DAYS {
-                        points.push((idx, overspent));
-                        let days_delta = idx - accumulated_length + 1;
-                        overspent -= fraction * budget.general_budget_at(today + TimeDelta::days(days_delta as i64));
-                        idx += 1;
-                    }
-                    if overspent <= dec!(0.0) {
-                        points.push((idx, dec!(0.0)));
-                    }
-                    while points.len() < PREDICTION_LOOKAHEAD_DAYS {
-                        points.push((idx, dec!(0.0)));
-                        idx += 1;
-                    }
-
-                    let mut data_str_buf = Vec::new();
-                    for (i, x) in points.iter() {
-                        write!(data_str_buf, "({},{}),", i, x).unwrap();
-                    }
-                    (format!("({})", String::from_utf8(data_str_buf).unwrap()), points)
-                };
-
-                let (important_indices, important_dates) = {
-                    let mut first_days = vec![];
-                    let mut first_dates = vec![];
-                    let mut current = today - TimeDelta::days(accumulated_length as i64);
-                    let mut idx = 0;
-                    while current <= today + TimeDelta::days(PREDICTION_LOOKAHEAD_DAYS as i64) {
-                        if current.day() == 1 {
-                            first_days.push(idx);
-                            first_dates.push(current);
-                        }
-                        current += TimeDelta::days(1);
-                        idx += 1;
-                    }
-                    (first_days, first_dates)
-                };
-
-                let all_points =  accum_points.into_iter().map(|x| (x.0, *x.1)).chain(recovery_points.into_iter()).collect::<HashMap<_,_>>();
-
-                const CANVAS_SIZE_X: usize = 15;
-                writeln!(buf, "#v(1em)").unwrap();
-                writeln!(buf, "#align(center,").unwrap();
-                writeln!(buf, "cetz.canvas({{").unwrap();
-                writeln!(buf, "import cetz.draw: *").unwrap();
-                writeln!(buf, "import cetz-plot: *").unwrap();
-                let mut max_y = all_points.iter().map(|x| *x.1).max().unwrap();
-                let mut min_y = all_points.iter().map(|x| *x.1).min().unwrap();
-                let delta = (max_y - min_y) * dec!(0.075);
-                max_y += delta;
-                min_y -= delta;
-                let last_pt = vec![all_points.len()];
-                for ((x, next_x), d) in important_indices.iter().zip(important_indices.iter().chain(last_pt.iter()).skip(1)).zip(important_dates) {
-                    let mut avg_y = dec!(0.0);
-                    for i in *x..*next_x {
-                        avg_y += all_points[&i];
-                    }
-                    avg_y /= Money::from(next_x - x);
-
-                    // let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
-                    let color = if avg_y > dec!(0.0) { "red" } else { "green" };
-                    // println!("{} {} {} {} {}", d.month(), x, next_x, avg_y, color);
-                    // writeln!(buf, "    content(({}, {}), [_{:02}_])", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month()).unwrap();
-                    writeln!(buf, "    content(({},{}), text([_{:02}_], 24pt, fill: {}.transparentize(90%)), anchor: \"south-west\")", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month(), color).unwrap();
-                }
-                writeln!(buf).unwrap();
-                writeln!(buf, "plot.plot(").unwrap();
-                writeln!(buf, "    size: ({}, 3),", CANVAS_SIZE_X).unwrap();
-                writeln!(buf, "    axis-style: none,").unwrap();
-                writeln!(buf, "    {{").unwrap();
-                for x in important_indices {
-                    let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
-                    let color = if y > dec!(0.0) { "red" } else { "green" };
-                    writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", x, min_y, x, max_y, color, color, color, color).unwrap();
-                }
-                writeln!(buf, "    plot.add(").unwrap();
-                writeln!(buf, "        {},", data_str).unwrap();
-                writeln!(buf, "        fill: true,").unwrap();
-                writeln!(buf, "        style: (stroke: gradient.linear({}, dir: direction.ttb), fill: gradient.linear({}, dir: direction.ttb)),", stroke_gradient, fill_gradient).unwrap();
-                writeln!(buf, "    )").unwrap();
-                writeln!(buf, "    plot.add(").unwrap();
-                writeln!(buf, "        {},", recovery_points_str).unwrap();
-                writeln!(buf, "        fill: true,").unwrap();
-                writeln!(buf, "        style: (stroke: (dash: \"dashed\", paint: gradient.linear((black.transparentize(67%), 0%), (black.transparentize(85%), 100%), dir: direction.ltr)), fill: none),").unwrap();
-                writeln!(buf, "    )").unwrap();
-                writeln!(buf, "    }}").unwrap();
-                writeln!(buf, ")").unwrap();
-                writeln!(buf, "}}))").unwrap();
+        } else if -*accumulated.last().unwrap() > budget.accumulated_days_to(-7, today) {
+            let mut days = 7;
+            let spared = -*accumulated.last().unwrap();
+            while spared > budget.accumulated_days_to(-days, today) {
+                days += 1;
             }
+            days = days * 10 / 11;
+            writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your budget plan that's around {} days' worth.])", spared, days).unwrap();
+            writeln!(buf, "]))").unwrap();
+            writeln!(buf, "#v(3em)").unwrap();
+            
         }
+
+        {
+            let accumulated_length = accumulated.len().min(365);
+            let (data_str, fill_gradient, stroke_gradient, accum_points) = {
+                let mut data_str_buf = Vec::new();
+                if accumulated.len() > 365 {
+                    accumulated = accumulated.split_off(accumulated.len() - 365);
+                    assert!(accumulated.len() == 365);
+                }
+                for (i, x) in accumulated.iter().enumerate() {
+                    write!(data_str_buf, "({},{}),", i, x).unwrap();
+                }
+
+                let max = accumulated.to_owned().into_iter().reduce(Money::max).unwrap();
+                let min = accumulated.to_owned().into_iter().reduce(Money::min).unwrap();
+                let percentage = max * dec!(100.0)/(max-min);
+                let epsilon = dec!(1e-1);
+
+                if percentage <= dec!(0.0) {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(green.transparentize(100%), 0%), (green.transparentize(66%), 100%)"),
+                        format!("(green, 0%), (green, 100%)"),
+                        accumulated.iter().enumerate().collect::<Vec<_>>(),
+                    )
+                } else if percentage >= dec!(100.0) {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(red.transparentize(33%), 0%), (red.transparentize(100%), 100%)"),
+                        format!("(red, 0%), (red, 100%)"),
+                        accumulated.iter().enumerate().collect::<Vec<_>>(),
+                    )
+                } else {
+                    (
+                        format!("({})", String::from_utf8(data_str_buf).unwrap()),
+                        format!("(red.transparentize(33%), 0%), (red.transparentize(100%), {}%), (green.transparentize(100%), {}%), (green.transparentize(66%), 100%)", percentage - epsilon, percentage + epsilon),
+                        format!("(red, 0%), (red, {}%), (green, {}%), (green, 100%)", percentage - epsilon, percentage + epsilon),
+                        accumulated.iter().enumerate().collect::<Vec<_>>(),
+                    )
+                }
+            };
+
+            const PREDICTION_LOOKAHEAD_DAYS: usize = 30;
+            let (recovery_points_str, recovery_points) = {
+                let mut points = Vec::with_capacity(recover_time_days.ceil().as_i128() as usize);
+                let mut overspent = overspent_total;
+                let mut idx = accumulated_length - 1;
+                let fraction = dec!(1.0) - fraction;
+                while overspent > dec!(0.0) && points.len() < PREDICTION_LOOKAHEAD_DAYS {
+                    points.push((idx, overspent));
+                    let days_delta = idx - accumulated_length + 1;
+                    overspent -= fraction * budget.general_budget_at(today + TimeDelta::days(days_delta as i64));
+                    idx += 1;
+                }
+                if overspent <= dec!(0.0) {
+                    points.push((idx, dec!(0.0).min(overspent_total)));
+                }
+                while points.len() < PREDICTION_LOOKAHEAD_DAYS {
+                    points.push((idx, dec!(0.0).min(overspent_total)));
+                    idx += 1;
+                }
+
+                let mut data_str_buf = Vec::new();
+                for (i, x) in points.iter() {
+                    write!(data_str_buf, "({},{}),", i, x).unwrap();
+                }
+                (format!("({})", String::from_utf8(data_str_buf).unwrap()), points)
+            };
+
+            let (important_indices, important_dates) = {
+                let mut first_days = vec![];
+                let mut first_dates = vec![];
+                let mut current = today - TimeDelta::days(accumulated_length as i64);
+                let mut idx = 0;
+                while current <= today + TimeDelta::days(PREDICTION_LOOKAHEAD_DAYS as i64) {
+                    if current.day() == 1 {
+                        first_days.push(idx);
+                        first_dates.push(current);
+                    }
+                    current += TimeDelta::days(1);
+                    idx += 1;
+                }
+                (first_days, first_dates)
+            };
+
+            let all_points =  accum_points.into_iter().map(|x| (x.0, *x.1)).chain(recovery_points.into_iter()).collect::<HashMap<_,_>>();
+
+            const CANVAS_SIZE_X: usize = 15;
+            writeln!(buf, "#v(1em)").unwrap();
+            writeln!(buf, "#align(center,").unwrap();
+            writeln!(buf, "cetz.canvas({{").unwrap();
+            writeln!(buf, "import cetz.draw: *").unwrap();
+            writeln!(buf, "import cetz-plot: *").unwrap();
+            let mut max_y = all_points.iter().map(|x| *x.1).max().unwrap();
+            let mut min_y = all_points.iter().map(|x| *x.1).min().unwrap();
+            let delta = (max_y - min_y) * dec!(0.075);
+            max_y += delta;
+            min_y -= delta;
+            let last_pt = vec![all_points.len()];
+            for ((x, next_x), d) in important_indices.iter().zip(important_indices.iter().chain(last_pt.iter()).skip(1)).zip(important_dates) {
+                let mut avg_y = dec!(0.0);
+                for i in *x..*next_x {
+                    avg_y += all_points[&i];
+                }
+                avg_y /= Money::from(next_x - x);
+
+                // let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
+                let color = if avg_y > dec!(0.0) { "red" } else { "green" };
+                // println!("{} {} {} {} {}", d.month(), x, next_x, avg_y, color);
+                // writeln!(buf, "    content(({}, {}), [_{:02}_])", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month()).unwrap();
+                writeln!(buf, "    content(({},{}), text([_{:02}_], 24pt, fill: {}.transparentize(90%)), anchor: \"south-west\")", *x as f64 * CANVAS_SIZE_X as f64 / all_points.len() as f64, 0, d.month(), color).unwrap();
+            }
+            writeln!(buf).unwrap();
+            writeln!(buf, "plot.plot(").unwrap();
+            writeln!(buf, "    size: ({}, 3),", CANVAS_SIZE_X).unwrap();
+            writeln!(buf, "    axis-style: none,").unwrap();
+            writeln!(buf, "    {{").unwrap();
+            for x in important_indices {
+                let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
+                let color = if y > dec!(0.0) { "red" } else { "green" };
+                writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", x, min_y, x, max_y, color, color, color, color).unwrap();
+            }
+            writeln!(buf, "    plot.add(").unwrap();
+            writeln!(buf, "        {},", data_str).unwrap();
+            writeln!(buf, "        fill: true,").unwrap();
+            writeln!(buf, "        style: (stroke: gradient.linear({}, dir: direction.ttb), fill: gradient.linear({}, dir: direction.ttb)),", stroke_gradient, fill_gradient).unwrap();
+            writeln!(buf, "    )").unwrap();
+            writeln!(buf, "    plot.add(").unwrap();
+            writeln!(buf, "        {},", recovery_points_str).unwrap();
+            writeln!(buf, "        fill: true,").unwrap();
+            writeln!(buf, "        style: (stroke: (dash: \"dashed\", paint: gradient.linear((black.transparentize(67%), 0%), (black.transparentize(85%), 100%), dir: direction.ltr)), fill: none),").unwrap();
+            writeln!(buf, "    )").unwrap();
+            writeln!(buf, "    }}").unwrap();
+            writeln!(buf, ")").unwrap();
+            writeln!(buf, "}}))").unwrap();
+        }
+        
+        writeln!(buf, "#v(1.5fr)").unwrap();
     }
+
     writeln!(buf, "").unwrap();
 
 
@@ -1653,11 +1669,17 @@ fn main() {
             println!("[INFO] Typst source code saved in  `{}`.", out_path.display());
             exit(1);
         },
-        Ok(_) => {
-            let _ = fs::remove_file(&out_path);
-            let mut out_pdf_path = out_path;
-            out_pdf_path.set_extension("pdf");
-            println!("[INFO] Detailed report saved in `{}`.", out_pdf_path.display());
+        Ok(x) => {
+            if !x.status.success() {
+                eprintln!("[ERROR] Unable to compile report.");
+                println!("[INFO] Typst source code saved in  `{}`.", out_path.display());
+                exit(1);
+            } else {
+                let _ = fs::remove_file(&out_path);
+                let mut out_pdf_path = out_path;
+                out_pdf_path.set_extension("pdf");
+                println!("[INFO] Detailed report saved in `{}`.", out_pdf_path.display());
+            }
         }
     }
 }
