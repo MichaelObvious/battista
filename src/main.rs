@@ -1312,32 +1312,6 @@ writeln!(buf, "#colbreak()").unwrap();
         writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
-    
-    writeln!(buf, "= Overview of Weekdays").unwrap();
-
-
-    writeln!(buf, "#columns(2)[").unwrap();
-
-
-    
-    for n_days in LAST_N_DAYS {
-        if n_days < 14 {
-            continue;
-        }
-        writeln!(buf, "#align(center, text([*Last {} days*], 14pt))", n_days).unwrap();
-        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
-        writeln!(buf, "import cetz.draw: *").unwrap();
-        writeln!(buf, "import cetz-plot: *").unwrap();
-        writeln!(buf, "chart.columnchart((").unwrap();
-        let last_days_stats = &stats.last_n_days[&n_days];
-        for (wd, amount) in last_days_stats.by_day_of_week.iter() {
-                writeln!(buf, "(text(8pt,[{}]), {}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
-        }
-        writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
-        writeln!(buf, "}})]").unwrap();
-    }
-    writeln!(buf, "]").unwrap();
-
     writeln!(buf, "").unwrap();
     writeln!(buf, "= Data").unwrap();
         writeln!(buf, "").unwrap();
@@ -1346,6 +1320,26 @@ writeln!(buf, "#colbreak()").unwrap();
         for n_days in ns {
             write_typ_table(&mut buf, stats, budget, *n_days);
         }
+
+    writeln!(buf, "= Overview of Weekdays").unwrap();
+        writeln!(buf, "#columns(2)[").unwrap();
+        for n_days in LAST_N_DAYS {
+            if n_days < 14 {
+                continue;
+            }
+            writeln!(buf, "#align(center, text([*Last {} days*], 14pt))", n_days).unwrap();
+            writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+            writeln!(buf, "import cetz.draw: *").unwrap();
+            writeln!(buf, "import cetz-plot: *").unwrap();
+            writeln!(buf, "chart.columnchart((").unwrap();
+            let last_days_stats = &stats.last_n_days[&n_days];
+            for (wd, amount) in last_days_stats.by_day_of_week.iter() {
+                    writeln!(buf, "(text(8pt,[{}]), {}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
+            }
+            writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
+            writeln!(buf, "}})]").unwrap();
+        }
+        writeln!(buf, "]").unwrap();
 
     writeln!(buf, "").unwrap();
     let mut f = std::fs::File::create(file_path).unwrap();
