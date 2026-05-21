@@ -434,6 +434,50 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
     result
 }
 
+fn monthly_averages(today: NaiveDate, accumulated: &[Money]) -> Vec<(Money, usize, usize)> {
+    if accumulated.is_empty() {
+        return Vec::new();
+    }
+
+    let len = accumulated.len();
+    let first_date = today - TimeDelta::days(len as i64 - 1);
+
+    let mut result = Vec::new();
+    let mut month_start_idx: usize = 0;
+
+    let mut i = 0;
+    while i <= len {
+        let is_last = i == len;
+        let new_month = !is_last && {
+            let date = first_date + TimeDelta::days(i as i64);
+            let prev_date = first_date + TimeDelta::days(month_start_idx as i64);
+            (date.year(), date.month()) != (prev_date.year(), prev_date.month())
+        };
+
+        if is_last || new_month {
+            let month_end_idx = i - 1; // inclusive
+
+            let sum: Money = accumulated[month_start_idx..=month_end_idx]
+                .iter()
+                .copied()
+                .sum();
+            let count = month_end_idx - month_start_idx + 1;
+
+            result.push((
+                sum / Decimal::from(count as i64),
+                len - 1 - month_start_idx,
+                len - 1 - month_end_idx,
+            ));
+
+            month_start_idx = i;
+        }
+
+        i += 1;
+    }
+
+    result
+}
+
 fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start_date: NaiveDate, budget: &BudgetTimeline) -> i64 {
     let mut overspent = overspent_total;
     let fraction = dec!(1.0) - allowed_budget_fraction;
@@ -1060,6 +1104,14 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "        fill: true,").unwrap();
             writeln!(buf, "        style: (stroke: (dash: \"dashed\", paint: gradient.linear((black.transparentize(67%), 0%), (black.transparentize(85%), 100%), dir: direction.ltr)), fill: none),").unwrap();
             writeln!(buf, "    )").unwrap();
+            for (m_avg, start, end) in monthly_averages(today, &accumulated) {
+                let color = if m_avg > dec!(0) { "red" } else { "green" };
+                writeln!(buf, "    plot.add(").unwrap();
+                writeln!(buf, "        (({}, {}), ({},{})),", accumulated.len() - start-1, m_avg, accumulated.len()-end-1, m_avg).unwrap();
+                writeln!(buf, "        fill: true,").unwrap();
+                writeln!(buf, "        style: (stroke: (paint: gradient.linear(({}.transparentize(100%), 0%), ({}.transparentize(67%), 50%),({}.transparentize(100%), 100%), dir: direction.ltr)), fill: none),", color, color, color).unwrap();
+                writeln!(buf, "    )").unwrap();
+            }
             writeln!(buf, "    }}").unwrap();
             writeln!(buf, ")").unwrap();
             writeln!(buf, "}}))").unwrap();
