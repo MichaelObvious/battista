@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
 use quick_xml::{Reader, events::Event};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use rust_decimal_macros::dec;
 
 const LAST_N_DAYS: [u64; 5] = [7, 14, 30, 90, 365];
@@ -208,6 +208,7 @@ struct Stats {
     by_payment_method: Vec<(String, Money)>,
     #[allow(unused)]
     by_note: Vec<(String, Money)>,
+    by_day_of_week: Vec<(Weekday, Money)>,
     #[allow(unused)]
     average_transaction: Money,
     #[allow(unused)]
@@ -223,6 +224,7 @@ struct TempStats {
     by_category: HashMap<Category, Money>,
     by_payment_method: HashMap<String, Money>,
     by_note: HashMap<String, Money>,
+    by_day_of_week: HashMap<Weekday, Money>,
     average_transaction: Money,
     transaction_count: u64,
 }
@@ -245,6 +247,8 @@ impl TempStats {
             self.by_note.insert(e.note.clone(), Money::ZERO);
         }
         *(self.by_note.get_mut(&e.note).unwrap()) += value;
+
+        self.by_day_of_week.entry(e.date.weekday()).and_modify(|curr| *curr += value).or_insert(value);
 
         if self.start == NaiveDate::default() {
             self.start = e.date;
@@ -271,13 +275,21 @@ impl TempStats {
         }
     }
 
-    pub fn into_stats(self) -> Stats {
+    pub fn into_stats(mut self) -> Stats {
         let mut by_category = self.by_category.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_category.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         let mut by_payment_method = self.by_payment_method.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_payment_method.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         let mut by_note = self.by_note.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_note.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
+        for d in 0..7 {
+            let wd = Weekday::from_i32(d).unwrap();
+            self.by_day_of_week.entry(wd).or_insert(Money::ZERO);
+        }
+        let mut by_day_of_week = self.by_day_of_week.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
+        by_day_of_week.sort_by(|x, y| (x.0.num_days_from_monday() % 7).cmp(&(y.0.num_days_from_monday() % 7)));
+
+
         Stats {
             start: self.start,
             end: self.end,
@@ -286,6 +298,7 @@ impl TempStats {
             by_category,
             by_payment_method,
             by_note,
+            by_day_of_week,
             average_transaction: self.average_transaction,
             transaction_count: self.transaction_count,
         }
@@ -1246,6 +1259,32 @@ writeln!(buf, "#colbreak()").unwrap();
         }
         writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
+
+    
+    writeln!(buf, "= Overview of Weekdays").unwrap();
+
+
+    writeln!(buf, "#columns(2)[").unwrap();
+
+
+    
+    for n_days in LAST_N_DAYS {
+        if n_days < 14 {
+            continue;
+        }
+        writeln!(buf, "#align(center, text([*Last {} days*], 14pt))", n_days).unwrap();
+        writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+        writeln!(buf, "import cetz.draw: *").unwrap();
+        writeln!(buf, "import cetz-plot: *").unwrap();
+        writeln!(buf, "chart.columnchart((").unwrap();
+        let last_days_stats = &stats.last_n_days[&n_days];
+        for (wd, amount) in last_days_stats.by_day_of_week.iter() {
+                writeln!(buf, "(text(8pt,[{}]), {}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
+        }
+        writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
+        writeln!(buf, "}})]").unwrap();
+    }
+    writeln!(buf, "]").unwrap();
 
     writeln!(buf, "").unwrap();
     writeln!(buf, "= Data").unwrap();
