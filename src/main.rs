@@ -1300,6 +1300,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 duration,
                                 date,
                             });
+                        } else {
+                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
                         }
                     }
                     b"transaction" => {
@@ -1333,6 +1335,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 payment_method,
                                 note: note.unwrap_or_default(),
                             });
+                        } else {
+                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
                         }
                     },
                     b"extra" => {
@@ -1363,7 +1367,9 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 payment_method,
                                 note: note.unwrap_or_default(),
                             });
-                        } 
+                        } else {
+                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
+                        }
                     },
                     _ => {}
                 }
@@ -1552,8 +1558,8 @@ fn prompt_date_with_default(default: &str) -> String {
 fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
     fs::copy(file_path, format!("{}.bak", file_path.display())).unwrap();
     let mut entries = parse_raw_xml(file_path);
-
-    let mut transactions = entries.clone().into_iter().filter(
+    
+    let transactions = entries.clone().into_iter().filter(
         |x| match x {DBEntry::Transaction{..} => true, _ => false}
     ).map(RawTransaction::from).collect::<Vec<_>>();
 
@@ -1580,14 +1586,16 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             String::new()
         )
     };
-
+    
     let last_date = transactions.iter().map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap()).max().unwrap();
     let mut last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).map(|x| x.clone()).collect::<Vec<_>>();
 
     let mut added_transaction_idx = 0;
     loop {
         added_transaction_idx += 1;
-        println!("{}\n", tclear());
+        if added_transaction_idx != 1 {
+            println!("{}\n", tclear());
+        }
         let bold_title =  tbold(&format!("=== Add Transaction (#{}) ===", added_transaction_idx));
         println!("{}", bold_title);
         if !last_transactions.is_empty() {
@@ -1607,8 +1615,8 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
             last_transactions.clear();
         }
         println!();
-
-
+        
+        
         println!("Transaction data:");
         let date = prompt_date_with_default(&default_date);
         let amount = loop {
@@ -1664,7 +1672,6 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         };
 
         last_transactions.push(new_transaction.clone());
-        transactions.push(new_transaction.clone());
         entries.push(DBEntry::from(new_transaction));
         write_xml_file(file_path, &mut entries)?;
         println!("[INFO] Transaction added.");
