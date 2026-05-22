@@ -769,7 +769,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         if n_days >= 90 {
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
 
-            let biggest_expenses = stats.by_note.iter().filter(|x| x.1 > dec!(50.0)).zip(0..20).collect::<Vec<_>>();
+            let biggest_expenses = stats.by_note.iter().filter(|x| x.1/stats.total >= dec!(0.01)).zip(0..20).collect::<Vec<_>>();
             // let max_expense = biggest_expenses.first().unwrap().0.1;
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
             for ((note, amount),i) in biggest_expenses {
