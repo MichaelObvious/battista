@@ -767,12 +767,21 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "))").unwrap();
         writeln!(buf, "").unwrap();
         if n_days >= 90 {
-            writeln!(buf, "#v(2em)").unwrap();
-            writeln!(buf, "").unwrap();
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
+
+            let biggest_expenses = stats.by_note.iter().filter(|x| x.1 > dec!(50.0)).zip(0..20).collect::<Vec<_>>();
+            // let max_expense = biggest_expenses.first().unwrap().0.1;
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
-            for ((note, amount),i) in stats.by_note.iter().filter(|x| x.1 > dec!(50.0)).zip(0..20) {
-                writeln!(buf, "[{}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();
+            for ((note, amount),i) in biggest_expenses {
+                // let percentage_box =  {
+                //     let p = amount*dec!(100.0)/stats.total;
+                //     if p < dec!(1.0) {
+                //         String::default()
+                //     } else {
+                //         format!("#align(horizon, [#h(2.5em)] + box(fill: black.lighten({:.2}%), height: 0.67em, width: {:.2}em, stroke: 1pt + black) + [#h(0.5em) `{:.0}%`])", dec!(95)-dec!(10.0)*(amount/max_expense), dec!(5.0)*amount/max_expense, p.round())
+                //     }
+                // };
+                writeln!(buf, "[#h(2.5em) {}.], [_\"{}\"_], [`{:.2}`], ", i+1, note, amount).unwrap();
             }
             writeln!(buf, "))").unwrap();
         }
@@ -1334,7 +1343,7 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "chart.columnchart((").unwrap();
             let last_days_stats = &stats.last_n_days[&n_days];
             for (wd, amount) in last_days_stats.by_day_of_week.iter() {
-                    writeln!(buf, "(text(8pt,[{}]), {}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
+                    writeln!(buf, "(text(8pt,[{}]), {:.2}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
             }
             writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
             writeln!(buf, "}})]").unwrap();
