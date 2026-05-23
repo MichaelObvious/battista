@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
+    cmp::Ordering, collections::{BTreeMap, HashMap, HashSet}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -188,6 +188,24 @@ impl BudgetTimeline {
             })
         } else {
             Ok(())
+        }
+    }
+
+    fn validate(&self) -> Result<(), Vec<BudgetError>> {
+        let dates = self.general.keys()
+            .chain(self.extras.keys())
+            .chain(self.categories.keys().map(|x| self.categories[x].changes.keys()).flatten())
+            .collect::<HashSet<_>>();
+        
+        let errors: Vec<BudgetError> = dates
+        .iter()
+        .filter_map(|&d| self.validate_at(*d).err())
+        .collect();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
         }
     }
 
@@ -564,13 +582,6 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         }
                         budget.set_general(date, amount_str.parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Decimal>().unwrap());
                     }
-                    match budget.validate_at(date) {
-                        Err(BudgetError::CategoriesExceedGeneral { date, category_sum, general }) => {
-                            eprintln!("[ERROR] The sum of the categories at date `{}` is greater than the general budget.\n        Sum of categories: {}\n        General budget value: {}", date.format("%d/%m/%Y"), category_sum, general);
-                            exit(1);
-                        },
-                        Ok(_) => {},
-                    }
                     
                 },
                 "transaction" => {
@@ -609,6 +620,20 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                 exit(1);
             }
         }
+    }
+
+    match budget.validate() {
+        Err(errors) => {
+            for e in errors {
+                match e {
+                    BudgetError::CategoriesExceedGeneral { date, category_sum, general } => {
+                        eprintln!("[ERROR] The sum of the categories at date `{}` is greater than the general budget.\n        Sum of categories: {}\n        General budget value: {}", date.format("%d/%m/%Y"), category_sum, general);
+                    }
+                }
+            }
+            exit(1);
+        },
+        Ok(_) => {},
     }
 
     return (transactions, budget);
