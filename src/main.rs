@@ -1193,11 +1193,13 @@ writeln!(buf, "#colbreak()").unwrap();
             let allowed = budget.accumulated_days_to(-days, year_start);
             if y_stats.total > allowed {
                 writeln!(buf, "([{}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
+            } else if today.year() == *y {
+                writeln!(buf, "([{}], ({}, 0, {})),", y, y_stats.total, allowed - y_stats.total).unwrap();
             } else {
                 writeln!(buf, "([{}], {}),", y, y_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (16, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (16, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Year], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1261,11 +1263,13 @@ writeln!(buf, "#colbreak()").unwrap();
             let allowed = budget.accumulated_days_to(-n_days, month_start);
             if m_stats.total > allowed {
                 writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
+            } else if today.month() == *m  && today.year() == *y {
+                writeln!(buf, "([{:02}/{}], ({}, 0, {})),", m, y%100, m_stats.total, allowed - m_stats.total).unwrap();
             } else {
                 writeln!(buf, "([{:02}/{}], {}),", m, y%100, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Month], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1300,7 +1304,7 @@ writeln!(buf, "#colbreak()").unwrap();
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
-        for (week, m_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+        for (week, w_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
             let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
             let allowed = if today.iso_week() == *week {
                 budget.accumulated_days_to( -(today.signed_duration_since(week_start).num_days() + 1), week_start)
@@ -1312,13 +1316,15 @@ writeln!(buf, "#colbreak()").unwrap();
             } else {
                 format!("{:02}/{:02}", week_start.day(), week_start.month())
             };
-            if m_stats.total > allowed {
-                writeln!(buf, "(text(10pt, [{}]), ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
+            if w_stats.total > allowed {
+                writeln!(buf, "(text(10pt, [{}]), ({}, {})),", label, allowed, w_stats.total - allowed).unwrap();
+            } else if today.iso_week() == *week {
+                writeln!(buf, "(text(10pt,[{}]), ({}, 0, {})),", label, w_stats.total, allowed - w_stats.total).unwrap();
             } else {
-                writeln!(buf, "(text(10pt,[{}]), {}),", label, m_stats.total).unwrap();
+                writeln!(buf, "(text(10pt,[{}]), {}),", label, w_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Week], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1345,7 +1351,7 @@ writeln!(buf, "#colbreak()").unwrap();
             for (wd, amount) in last_days_stats.by_day_of_week.iter() {
                     writeln!(buf, "(text(8pt,[{}]), {:.2}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
             }
-            writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(colors: (black.lighten(85%), red.lighten(50%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
+            writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
             writeln!(buf, "}})]").unwrap();
         }
         writeln!(buf, "]").unwrap();
