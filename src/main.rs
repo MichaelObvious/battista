@@ -885,7 +885,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "= Budget").unwrap();
     writeln!(buf, "#v(1fr)").unwrap();
     writeln!(buf, "#columns(2, [").unwrap();
-    writeln!(buf, "#align(center, text([*Monthly Budget*], 18pt)) ").unwrap();
+    writeln!(buf, "#align(center, text([*Next Month's Budget*], 18pt)) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (left, right, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
@@ -934,7 +934,7 @@ writeln!(buf, "#colbreak()").unwrap();
 
     writeln!(buf, "#v(1fr)").unwrap();
     writeln!(buf, "#align(center)[").unwrap();
-    writeln!(buf, "  #text(18pt)[*Monthly Budget*]").unwrap();
+    writeln!(buf, "  #text(18pt)[*Next Month's Budget*]").unwrap();
     writeln!(buf, "#v(2em)").unwrap();
     
     let mut total_allocated = dec!(0);
