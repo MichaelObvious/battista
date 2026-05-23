@@ -77,122 +77,145 @@ impl From<RawTransaction> for DBEntry {
         DBEntry::Transaction{amount: value.amount, category: value.category, date: value.date, payment_method: value.payment_method, note: value.note}
     }
 }
-
-#[derive(Debug, Default, Clone)]
-struct RateSchedule {
-    changes: BTreeMap<NaiveDate, Money>,
+#[derive(Debug, Clone, Copy)]
+enum Rate {
+    Absolute(Money),
+    Percentage(Decimal),
 }
 
-impl RateSchedule {
-    fn set(&mut self, date: NaiveDate, rate: Money) {
+impl Rate {
+    fn from_period(total: Money, days: Decimal) -> Self {
+        Rate::Absolute((total / days).round_dp(2))
+    }
+
+    fn percentage(percentage: Decimal) -> Self {
+        Rate::Percentage(percentage/dec!(100))
+    }
+
+    fn resolve(&self, general: Money) -> Money {
+        match self {
+            Rate::Absolute(m) => *m,
+            Rate::Percentage(f) => (general * f).round_dp(2),
+        }
+    }
+}
+
+/// A step-function timeline: the rate at any date is the most recent entry on or before it.
+#[derive(Debug, Default, Clone)]
+struct Schedule {
+    changes: BTreeMap<NaiveDate, Rate>,
+}
+
+impl Schedule {
+    fn set(&mut self, date: NaiveDate, rate: Rate) {
         self.changes.insert(date, rate);
     }
 
-    #[allow(unused)]
-    fn current_rate(&self) -> Money {
-        let today = Local::now().date_naive();
-        self.rate_at(today).unwrap_or(dec!(0.0))
+    fn at(&self, date: NaiveDate) -> Option<Rate> {
+        self.changes.range(..=date).next_back().map(|(_, &r)| r)
     }
+}
 
-    fn rate_at(&self, date: NaiveDate) -> Option<Money> {
-        let mut last = None;
-
-        for (d, rate) in &self.changes {
-            if *d > date {
-                break;
-            }
-            last = Some(*rate);
-        }
-
-        last
-    }
-
-    fn accumulated(&self, start: NaiveDate, end: NaiveDate) -> Money {
-        let mut total = Money::ZERO;
-        let mut cursor = start + TimeDelta::days(1);
-
-        while cursor <= end {
-            total += self.rate_at(cursor).unwrap_or(Money::ZERO);
-            cursor += TimeDelta::days(1);
-        }
-
-        total
-    }
+#[derive(Debug)]
+enum BudgetError {
+    CategoriesExceedGeneral {
+        date: NaiveDate,
+        category_sum: Money,
+        general: Money,
+    },
 }
 
 #[derive(Debug, Default, Clone)]
 struct BudgetTimeline {
-    general: RateSchedule,
-    per_category: HashMap<Category, RateSchedule>,
-    extras: BTreeMap<NaiveDate, Money>,
+    general: BTreeMap<NaiveDate, Money>, // always absolute; no Rate enum needed
+    categories: HashMap<Category, Schedule>,
+    extras: BTreeMap<NaiveDate, Money>,  // one-off additions to the general on a specific date
 }
 
 impl BudgetTimeline {
-    fn current_general(&self) -> Money {
-        let today = Local::now().date_naive();
-        self.general_budget_at(today)
+
+    fn set_general(&mut self, date: NaiveDate, daily_rate: Money, days: Decimal) {
+        self.general.insert(date, (daily_rate / days).round_dp(2));
     }
 
-    fn general_budget_at(&self, date: NaiveDate) -> Money {
-        let base = 
-            self.general.rate_at(date).unwrap_or(Money::ZERO)
-            + self.extras.get(&date).unwrap_or(&Money::ZERO);
-        
-        let category_sum = self.category_sum_at(date);
-        base.max(category_sum)
+    fn set_category(&mut self, category: &Category, date: NaiveDate, rate: Rate) {
+        self.categories
+            .entry(category.into())
+            .or_default()
+            .set(date, rate);
     }
 
-    #[allow(unused)]
-    fn category_budget_at(&self, category: &str, date: NaiveDate) -> Option<Money> {
-        self.per_category.get(category).and_then(|s| s.rate_at(date))
+    fn add_extra(&mut self, date: NaiveDate, amount: Money) {
+        *self.extras.entry(date).or_insert(Money::ZERO) += amount;
     }
 
-    fn accumulated_days_to(&self, n_days: i64, start: NaiveDate) -> Money {
-        if n_days < 0 {
-            return self.accumulated(start, start + TimeDelta::days(-n_days));
-        } else {
-            return self.accumulated(start - TimeDelta::days(n_days), start);
-        }
+    fn general_at(&self, date: NaiveDate) -> Money {
+        let base = self.general
+            .range(..=date)
+            .next_back()
+            .map(|(_, &m)| m)
+            .unwrap_or(Money::ZERO);
+        let extra = self.extras.get(&date).copied().unwrap_or(Money::ZERO);
+        base + extra
     }
 
-    fn accumulated_days(&self, n_days: i64) -> Money {
-        let today = Local::now().date_naive();
-        return self.accumulated_days_to(n_days, today);
-    }
-
-    fn accumulated(&self, start: NaiveDate, end: NaiveDate) -> Money {
-        let mut total = Money::ZERO;
-        let mut cursor = start + TimeDelta::days(1);
-
-        while cursor <= end {
-            total += self.general_budget_at(cursor);
-            cursor += TimeDelta::days(1);
-        }
-
-        total
-    }
-
-    fn category_accumulated(&self, category: &str, start: NaiveDate, end: NaiveDate) -> Option<Money> {
-        self.per_category.get(category).map(|s| s.accumulated(start, end))
+    fn category_at(&self, category: &str, date: NaiveDate) -> Money {
+        let general = self.general_at(date);
+        self.categories
+            .get(category)
+            .and_then(|s| s.at(date))
+            .map(|r| r.resolve(general))
+            .unwrap_or(Money::ZERO)
     }
 
     fn category_sum_at(&self, date: NaiveDate) -> Money {
-        self.per_category
+        let general = self.general_at(date);
+        self.categories
             .values()
-            .map(|sched| sched.rate_at(date).unwrap_or(Money::ZERO))
+            .filter_map(|s| s.at(date))
+            .map(|r| r.resolve(general))
             .sum()
     }
 
-    fn add_general(&mut self, date: NaiveDate, amount: Money, duration: Money) {
-        self.general.set(date, (amount / duration).round_dp(2));
+    fn validate_at(&self, date: NaiveDate) -> Result<(), BudgetError> {
+        let general = self.general_at(date);
+        let sum = self.category_sum_at(date);
+        if sum > general {
+            Err(BudgetError::CategoriesExceedGeneral {
+                date,
+                category_sum: sum,
+                general,
+            })
+        } else {
+            Ok(())
+        }
     }
 
-    fn add_category(&mut self, category: Category, date: NaiveDate, amount: Money, duration: Money) {
-        self.per_category
-            .entry(category)
-            .or_default()
-            .set(date, (amount / duration).round_dp(2));
+    fn accumulated_general(&self, start: NaiveDate, end: NaiveDate) -> Money {
+        iter_days(start, end).map(|d| self.general_at(d)).sum()
     }
+
+    fn accumulated_category(
+        &self,
+        category: &str,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Money {
+        iter_days(start, end).map(|d| self.category_at(category, d)).sum()
+    }
+}
+
+fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
+    let mut cursor = start;
+    std::iter::from_fn(move || {
+        if cursor <= end {
+            let d = cursor;
+            cursor += TimeDelta::days(1);
+            Some(d)
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Debug, Default)]
@@ -230,7 +253,7 @@ struct TempStats {
 }
 
 impl TempStats {
-    pub fn update(&mut self, e: &Transaction) {
+    fn update(&mut self, e: &Transaction) {
         let value = e.value;
         self.total += value;
         if !self.by_category.contains_key(&e.category) {
@@ -264,7 +287,7 @@ impl TempStats {
         self.transaction_count += 1;
     }
 
-    pub fn calc_averages(&mut self, days: u64) {
+    fn calc_averages(&mut self, days: u64) {
         let days: Money = days.into();
         self.per_day = self.total / days;
         if self.transaction_count != 0 {
@@ -275,7 +298,7 @@ impl TempStats {
         }
     }
 
-    pub fn into_stats(mut self) -> Stats {
+    fn into_stats(mut self) -> Stats {
         let mut by_category = self.by_category.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
         by_category.sort_by(|x, y| x.1.partial_cmp(&y.1).unwrap().reverse());
         let mut by_payment_method = self.by_payment_method.into_iter().map(|(k,v)| (k, v)).collect::<Vec<_>>();
@@ -330,7 +353,7 @@ struct TempStatsCollection {
 }
 
 impl TempStatsCollection {
-    pub fn into_stats_collection(self) -> StatsCollection {
+    fn into_stats_collection(self) -> StatsCollection {
         let mut yearly = self
             .yearly
             .into_iter()
@@ -424,7 +447,7 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
 
     while current <= last_date {
         let daily_spending: Money = *per_day.get(&current).unwrap_or(&Money::ZERO);
-        let daily_budget = budget.general_budget_at(current);
+        let daily_budget = budget.general_at(current);
         let overspending = daily_spending - daily_budget;
         accumulated += overspending;
         result.push(accumulated);
@@ -483,7 +506,7 @@ fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start
     let fraction = dec!(1.0) - allowed_budget_fraction;
     let mut days = 0;
     while days < 366*100 && overspent > dec!(0.0) {
-        overspent -= budget.general_budget_at(start_date + TimeDelta::days(days)) * fraction;
+        overspent -= budget.general_at(start_date + TimeDelta::days(days)) * fraction;
         days += 1;
     }
     return days;
@@ -524,11 +547,31 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
                     }).collect::<HashMap<_,_>>();
                     let pot_category = attributes.get("category");
+                    let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
+                    let amount_str = attributes.get("amount").unwrap().trim();
                     if let Some(category) = pot_category {
-                        budget.add_category(category.to_owned(), NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(), attributes.get("amount").unwrap().parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Money>().unwrap());
+                        let rate = if amount_str.ends_with('%') {
+                            let amount_str = amount_str.replace('%', "");
+                            Rate::percentage(amount_str.parse::<Money>().unwrap())
+                        } else {
+                            Rate::from_period(amount_str.parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Decimal>().unwrap())
+                        };
+                        budget.set_category(category, date, rate);
                     } else {
-                        budget.add_general(NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(), attributes.get("amount").unwrap().parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Money>().unwrap());
+                        if amount_str.ends_with('%') {
+                            eprintln!("[ERROR] No percentage allowed in general budget: `{}`.\n        Either add category or insert an absolute amount.", String::from_utf8(e.to_vec()).unwrap());
+                            exit(1);
+                        }
+                        budget.set_general(date, amount_str.parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Decimal>().unwrap());
                     }
+                    match budget.validate_at(date) {
+                        Err(BudgetError::CategoriesExceedGeneral { date, category_sum, general }) => {
+                            eprintln!("[ERROR] The sum of the categories at date `{}` is greater than the general budget.\n        Sum of categories: {}\n        General budget value: {}", date.format("%d/%m/%Y"), category_sum, general);
+                            exit(1);
+                        },
+                        Ok(_) => {},
+                    }
+                    
                 },
                 "transaction" => {
                     let attributes =  e.attributes().map(|x| {
@@ -554,11 +597,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     // assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
                     let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
                     let value = attributes.get("amount").unwrap().parse::<Money>().unwrap();
-                    if budget.extras.contains_key(&date) {
-                        *budget.extras.get_mut(&date).unwrap() += value;
-                    } else {
-                        budget.extras.insert(date, value);
-                    }
+                    budget.add_extra(date, value);
                 },
                 x => {
                     eprintln!("[ERROR]: Unknown tag: `{}`.", x);
@@ -711,9 +750,10 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "").unwrap();
         writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Budget*], [*Allowed spending*],").unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-        let n_days_accumulated =  budget.accumulated(today - TimeDelta::days(n_days as i64), today);
+        let n_days_accumulated =  budget.accumulated_general(today - TimeDelta::days(n_days as i64), today);
         for (category, amount) in stats.by_category.iter() {
-            let allowed_amount = if let Some(allowed_amount) = budget.category_accumulated(category, today - TimeDelta::days(n_days as i64), today) {
+            let allowed_amount = budget.accumulated_category(category, today - TimeDelta::days(n_days as i64), today);
+            let allowed_amount = if allowed_amount > Money::ZERO {
                 if n_days_accumulated > stats.total || allowed_amount - amount <= dec!(0.0) {
                     let allowed = allowed_amount - *amount;
                     (format!("{:.0}", allowed), format!("{:.0}%", (amount*dec!(100.0))/allowed_amount), if allowed >= dec!(0.0)  {
@@ -747,7 +787,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap()
         }
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-        let allowed_amount = if budget.current_general() > dec!(0.0) {
+        let allowed_amount = if budget.general_at(today) > dec!(0.0) {
                 let total_allowed = n_days_accumulated;
                 let allowed = total_allowed - stats.total;
                 (format!("{:.0}", allowed), format!("{:.0}%", (stats.total*dec!(100.0))/total_allowed), if allowed >= dec!(0.0)  {
@@ -825,8 +865,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    let monthly_total_budget = budget.accumulated_days(-30);
-    let mut budget_categories = budget.per_category.iter().map(|(c,b)| (c, b.accumulated(today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
+    let monthly_total_budget = budget.accumulated_general(today, today+TimeDelta::days(30));
+    let mut budget_categories = budget.categories.iter().map(|(c,_)| (c, budget.accumulated_category(c, today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
     budget_categories.sort_by_key(|(_,b)| -b);
     let mut total_allocated = dec!(0.0);
     for (category, monthly_budget) in budget_categories.iter() {
@@ -844,8 +884,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "))").unwrap();
 
     let min_budget = (monthly_total_budget
-    .min(budget.accumulated_days(-7) * dec!(30) / dec!(7))
-    .min(budget.current_general() * dec!(30)) / dec!(30)).round_dp(2);
+    .min(budget.accumulated_general(today,today + TimeDelta::days(7)) * dec!(30) / dec!(7))
+    .min(budget.general_at(today) * dec!(30)) / dec!(30)).round_dp(2);
 
 writeln!(buf, "#colbreak()").unwrap();
     
@@ -926,9 +966,9 @@ writeln!(buf, "#colbreak()").unwrap();
     
     let mut accumulated = accumulated_overspending(&stats.transactions, budget);
     let next_month_budget = monthly_total_budget;
-    let mut allowed_next_month = next_month_budget + budget.accumulated_days(30) - stats.last_n_days.get(&30).unwrap().total;
+    let mut allowed_next_month = next_month_budget + budget.accumulated_general(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
     let overspent_total = accumulated.last().unwrap().clone();
-    let next_year_budget =  budget.accumulated_days(-365);
+    let next_year_budget =  budget.accumulated_general(today, today + TimeDelta::days(365));
     let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - next_year_budget)/next_year_budget).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
     let month_fraction = allowed_next_month / next_month_budget * dec!(0.95);
     let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
@@ -968,10 +1008,10 @@ writeln!(buf, "#colbreak()").unwrap();
             }
             writeln!(buf, "]))").unwrap();
 
-        } else if -*accumulated.last().unwrap() > budget.accumulated_days_to(-7, today) {
+        } else if -*accumulated.last().unwrap() > budget.accumulated_general(today, today + TimeDelta::days(7)) {
             let mut days = 7;
             let spared = -*accumulated.last().unwrap();
-            while spared > budget.accumulated_days_to(-days, today) {
+            while spared > budget.accumulated_general(today, today + TimeDelta::days(days)) {
                 days += 1;
             }
             days = days * 10 / 11;
@@ -1032,7 +1072,7 @@ writeln!(buf, "#colbreak()").unwrap();
                 while overspent > dec!(0.0) && points.len() < PREDICTION_LOOKAHEAD_DAYS {
                     points.push((idx, overspent));
                     let days_delta = idx - accumulated_length + 1;
-                    overspent -= fraction * budget.general_budget_at(today + TimeDelta::days(days_delta as i64));
+                    overspent -= fraction * budget.general_at(today + TimeDelta::days(days_delta as i64));
                     idx += 1;
                 }
                 if overspent <= dec!(0.0) {
@@ -1155,8 +1195,9 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average: Money = total * dec!(365.0) / Decimal::from(total_days);
-        let average_budget: Money = budget.accumulated_days(total_days)*dec!(365.0)/Decimal::from(total_days);
-        let overspending = total - budget.accumulated_days(total_days);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let average_budget: Money = accumulated_total_days*dec!(365.0)/Decimal::from(total_days);
+        let overspending = total - accumulated_total_days;
         let percentage =  average*dec!(100.0)/average_budget;
         let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 365 days\\ ", average, color).unwrap();
@@ -1190,7 +1231,7 @@ writeln!(buf, "#colbreak()").unwrap();
             } else {
                 days_in_year(year_start)
             };
-            let allowed = budget.accumulated_days_to(-days, year_start);
+            let allowed = budget.accumulated_general(year_start, year_start + TimeDelta::days(days));
             if y_stats.total > allowed {
                 writeln!(buf, "([{}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
             } else if today.year() == *y {
@@ -1225,10 +1266,11 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(30.0) / Decimal::from(total_days);
-        let average_budget = budget.accumulated_days(total_days)*dec!(30.0)/Decimal::from(total_days);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let average_budget =accumulated_total_days*dec!(30.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
         let color = percentage_to_color(percentage/dec!(100.0));
-        let overspent = total - budget.accumulated_days(total_days);
+        let overspent = total - accumulated_total_days;
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
         if percentage < dec!(95.0) {
@@ -1260,7 +1302,7 @@ writeln!(buf, "#colbreak()").unwrap();
             } else {
                 days_in_month(month_start)
             };
-            let allowed = budget.accumulated_days_to(-n_days, month_start);
+            let allowed = budget.accumulated_general(month_start, month_start + TimeDelta::days(n_days));
             if m_stats.total > allowed {
                 writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
             } else if today.month() == *m  && today.year() == *y {
@@ -1282,9 +1324,10 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(7.0) / Decimal::from(total_days);
-        let average_budget = budget.accumulated_days(total_days)*dec!(7.0)/Decimal::from(total_days);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let average_budget = accumulated_total_days*dec!(7.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
-        let overspent = total - budget.accumulated_days(total_days);
+        let overspent = total - accumulated_total_days;
         let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 7 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
@@ -1307,9 +1350,9 @@ writeln!(buf, "#colbreak()").unwrap();
         for (week, w_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
             let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
             let allowed = if today.iso_week() == *week {
-                budget.accumulated_days_to( -(today.signed_duration_since(week_start).num_days() + 1), week_start)
+                budget.accumulated_general(week_start, week_start + TimeDelta::days(today.signed_duration_since(week_start).num_days() - 1))
             } else {
-                budget.accumulated_days_to( -7, week_start)
+                budget.accumulated_general(week_start, week_start + TimeDelta::days(7))
             };
             let label = if (week_start - TimeDelta::days(7)).month() != week_start.month() {
                 format!("#underline[{:02}/{:02}]", week_start.day(), week_start.month())
@@ -1401,7 +1444,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 date,
                             });
                         } else {
-                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
+                            eprintln!("[WARNING]: Incomplete tag: `{}`.", String::from_utf8(e.to_vec()).unwrap());
                         }
                     }
                     b"transaction" => {
