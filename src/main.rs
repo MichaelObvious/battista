@@ -100,7 +100,6 @@ impl Rate {
     }
 }
 
-/// A step-function timeline: the rate at any date is the most recent entry on or before it.
 #[derive(Debug, Default, Clone)]
 struct Schedule {
     changes: BTreeMap<NaiveDate, Rate>,
@@ -127,7 +126,7 @@ enum BudgetError {
 
 #[derive(Debug, Default, Clone)]
 struct BudgetTimeline {
-    general: BTreeMap<NaiveDate, Money>, // always absolute; no Rate enum needed
+    general: BTreeMap<NaiveDate, Money>, // always absolute; no Rate
     categories: HashMap<Category, Schedule>,
     extras: BTreeMap<NaiveDate, Money>,  // one-off additions to the general on a specific date
 }
@@ -224,7 +223,7 @@ impl BudgetTimeline {
 }
 
 fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
-    let mut cursor = start;
+    let mut cursor = start + TimeDelta::days(1);
     std::iter::from_fn(move || {
         if cursor <= end {
             let d = cursor;
@@ -469,7 +468,7 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
         let overspending = daily_spending - daily_budget;
         accumulated += overspending;
         result.push(accumulated);
-        current = current + TimeDelta::days(1);
+        current += TimeDelta::days(1);
     }
 
     result
