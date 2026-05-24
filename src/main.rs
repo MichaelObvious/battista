@@ -223,7 +223,7 @@ impl BudgetTimeline {
 }
 
 fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
-    let mut cursor = start + TimeDelta::days(1);
+    let mut cursor = start;
     std::iter::from_fn(move || {
         if cursor <= end {
             let d = cursor;
@@ -969,7 +969,11 @@ writeln!(buf, "#colbreak()").unwrap();
     writeln!(buf, "      inner-radius: 4.15,").unwrap();
     writeln!(buf, "      slice-style: (").unwrap();
     for (i,_) in slices.iter().enumerate() {
-        writeln!(buf, "        (fill: black.transparentize({}%), stroke: none),", (i as f64 / (slices.len()-1) as f64).sqrt() * 100.0).unwrap();
+        let mut transparency = (i as f64 / (slices.len()-1) as f64).sqrt() * 100.0;
+        if transparency.is_nan() {
+            transparency = 0.0;
+        }
+        writeln!(buf, "        (fill: black.transparentize({}%), stroke: none),", transparency).unwrap();
     }
     writeln!(buf, "      ),").unwrap();
     writeln!(buf, "      inner-label: (content: \"%\", radius: 85%),").unwrap();
@@ -1060,7 +1064,16 @@ writeln!(buf, "#colbreak()").unwrap();
 
                 let max = accumulated.to_owned().into_iter().reduce(Money::max).unwrap();
                 let min = accumulated.to_owned().into_iter().reduce(Money::min).unwrap();
-                let percentage = max * dec!(100.0)/(max-min);
+                
+                let percentage = if max == min {
+                    if max > dec!(0) {
+                        dec!(-100.0)
+                    } else {
+                        dec!(100.0)
+                    }
+                } else {
+                    max * dec!(100.0)/(max-min)
+                };
                 let epsilon = dec!(1e-1);
 
                 if percentage <= dec!(0.0) {
@@ -1091,12 +1104,12 @@ writeln!(buf, "#colbreak()").unwrap();
             let (recovery_points_str, recovery_points) = {
                 let mut points = Vec::with_capacity(recover_time_days.ceil().as_i128() as usize);
                 let mut overspent = overspent_total;
-                let mut idx = accumulated_length - 1;
+                let mut idx = accumulated_length.max(1) - 1;
                 let fraction = dec!(1.0) - fraction;
                 while overspent > dec!(0.0) && points.len() < PREDICTION_LOOKAHEAD_DAYS {
                     points.push((idx, overspent));
-                    let days_delta = idx - accumulated_length + 1;
-                    overspent -= fraction * budget.general_at(today + TimeDelta::days(days_delta as i64));
+                    let days_delta = idx as i64 - accumulated_length as i64 + 1;
+                    overspent -= fraction * budget.general_at(today + TimeDelta::days(days_delta));
                     idx += 1;
                 }
                 if overspent <= dec!(0.0) {
