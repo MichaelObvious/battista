@@ -452,23 +452,21 @@ fn accumulated_overspending(transactions: &[Transaction], budget: &BudgetTimelin
 
     let mut result: Vec<Decimal> = Vec::new();
     let mut accumulated = Money::ZERO;
-    let mut current = first_date;
 
     let per_day = {
         let mut per_day_map = HashMap::with_capacity((last_date - first_date).num_days() as usize + 7);
         for t in transactions {
-            per_day_map.entry(t.date).and_modify(|x| *x += t.value).or_insert(t.value);
+            *per_day_map.entry(t.date).or_insert(Money::ZERO) += t.value;
         }
         per_day_map
     };
 
-    while current <= last_date {
+    for current in iter_days(first_date, last_date) {
         let daily_spending: Money = *per_day.get(&current).unwrap_or(&Money::ZERO);
         let daily_budget = budget.general_at(current);
         let overspending = daily_spending - daily_budget;
         accumulated += overspending;
         result.push(accumulated);
-        current += TimeDelta::days(1);
     }
 
     result
@@ -1059,7 +1057,7 @@ writeln!(buf, "#colbreak()").unwrap();
                     assert!(accumulated.len() == 365);
                 }
                 for (i, x) in accumulated.iter().enumerate() {
-                    write!(data_str_buf, "({},{}),", i, x).unwrap();
+                    write!(data_str_buf, "({},{:.2}),", i, x).unwrap();
                 }
 
                 let max = accumulated.to_owned().into_iter().reduce(Money::max).unwrap();
@@ -1122,7 +1120,7 @@ writeln!(buf, "#colbreak()").unwrap();
 
                 let mut data_str_buf = Vec::new();
                 for (i, x) in points.iter() {
-                    write!(data_str_buf, "({},{}),", i, x).unwrap();
+                    write!(data_str_buf, "({},{:.2}),", i, x).unwrap();
                 }
                 (format!("({})", String::from_utf8(data_str_buf).unwrap()), points)
             };
@@ -1178,7 +1176,7 @@ writeln!(buf, "#colbreak()").unwrap();
             for x in important_indices {
                 let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
                 let color = if y > dec!(0.0) { "red" } else { "green" };
-                writeln!(buf, "    plot.add((({}, {}),({},{})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", x, min_y, x, max_y, color, color, color, color).unwrap();
+                writeln!(buf, "    plot.add((({}, {:.2}),({},{:.2})), style: (stroke: 0.75pt + gradient.linear(({}.transparentize(100%), 0%),({}.transparentize(90%), 25%),({}.transparentize(90%), 75%),({}.transparentize(100%), 100%), dir: direction.ttb), fill: none))", x, min_y, x, max_y, color, color, color, color).unwrap();
             }
             writeln!(buf, "    plot.add(").unwrap();
             writeln!(buf, "        {},", data_str).unwrap();
@@ -1193,7 +1191,7 @@ writeln!(buf, "#colbreak()").unwrap();
             for (m_avg, start, end) in monthly_averages(today, &accumulated) {
                 let color = if m_avg > dec!(0) { "red" } else { "green" };
                 writeln!(buf, "    plot.add(").unwrap();
-                writeln!(buf, "        (({}, {}), ({},{})),", accumulated.len() - start-1, m_avg, accumulated.len()-end-1, m_avg).unwrap();
+                writeln!(buf, "        (({}, {:.2}), ({},{:.2})),", accumulated.len() - start-1, m_avg, accumulated.len()-end-1, m_avg).unwrap();
                 writeln!(buf, "        fill: true,").unwrap();
                 writeln!(buf, "        style: (stroke: (paint: gradient.linear(({}.transparentize(100%), 0%), ({}.transparentize(67%), 50%),({}.transparentize(100%), 100%), dir: direction.ltr)), fill: none),", color, color, color).unwrap();
                 writeln!(buf, "    )").unwrap();
@@ -1232,7 +1230,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average: Money = total * dec!(365.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
         let average_budget: Money = accumulated_total_days*dec!(365.0)/Decimal::from(total_days);
         let overspending = total - accumulated_total_days;
         let percentage =  average*dec!(100.0)/average_budget;
@@ -1303,7 +1301,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(30.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
         let average_budget =accumulated_total_days*dec!(30.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
         let color = percentage_to_color(percentage/dec!(100.0));
@@ -1361,7 +1359,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(7.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days), today);
+        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
         let average_budget = accumulated_total_days*dec!(7.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
         let overspent = total - accumulated_total_days;
@@ -1386,11 +1384,12 @@ writeln!(buf, "#colbreak()").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
         for (week, w_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
             let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
-            let allowed = if today.iso_week() == *week {
-                budget.accumulated_general(week_start, week_start + TimeDelta::days(today.signed_duration_since(week_start).num_days() - 1))
+            let week_end = if today.iso_week() == *week {
+                week_start + TimeDelta::days(today.signed_duration_since(week_start).num_days())
             } else {
-                budget.accumulated_general(week_start, week_start + TimeDelta::days(7))
+                week_start + TimeDelta::days(7 - 1)
             };
+            let allowed = budget.accumulated_general(week_start, week_end);
             let label = if (week_start - TimeDelta::days(7)).month() != week_start.month() {
                 format!("#underline[{:02}/{:02}]", week_start.day(), week_start.month())
             } else {
