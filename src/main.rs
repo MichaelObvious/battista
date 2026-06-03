@@ -1155,12 +1155,12 @@ writeln!(buf, "#colbreak()").unwrap();
             max_y += delta;
             min_y -= delta;
             let last_pt = vec![all_points.len()];
-            for ((x, next_x), d) in important_indices.iter().zip(important_indices.iter().chain(last_pt.iter()).skip(1)).zip(important_dates) {
+            for ((x, next_x), d) in important_indices.iter().zip(important_indices.iter().skip(1).chain(last_pt.iter())).zip(important_dates) {
                 let mut avg_y = dec!(0.0);
                 for i in *x..*next_x {
                     avg_y += all_points[&i];
                 }
-                avg_y /= Money::from(next_x - x);
+                avg_y /= Money::from(next_x - x).max(dec!(1));
 
                 // let y = all_points.get(&x).unwrap_or(&dec!(0.0)).to_owned();
                 let color = if avg_y > dec!(0.0) { "red" } else { "green" };
@@ -1332,7 +1332,7 @@ writeln!(buf, "#colbreak()").unwrap();
             };
             let n_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days()
-            } else if stats.end.year() == *y && stats.start.month() == *m && today.year() == *y && today.month() == *m {
+            } else if stats.end.year() == *y && stats.end.month() == *m && today.year() == *y && today.month() == *m {
                 days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1)
             } else {
                 days_in_month(month_start)
