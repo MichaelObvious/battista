@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap, HashSet}, env, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
+    cmp::Ordering, collections::{BTreeMap, HashMap, HashSet}, env, f64::consts::PI, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -527,21 +527,18 @@ fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start
     return days;
 }
 
-fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fraction: Decimal, budget: &BudgetTimeline) -> Ordering {
+fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fraction: Decimal, budget: &BudgetTimeline) -> f64 {
     let today = Local::now().date_naive();
-    let window = 7.min(overspent_history.len() - 1) as i64;
+    let window = 14.min(overspent_history.len() - 1) as i64;
     let mut total = 0;
     for i in (-window)..0 {
         let overspent_total = overspent_history[(overspent_history.len()as i64 + i - 1) as usize];
         let rd =  recovery_days(overspent_total, allowed_budget_fraction, today + TimeDelta::days(i), budget);
-        total += rd - i;
+        total += rd + i;
     }
-    let average = (total as f64 / window as f64).ceil() as i64;
-    let days = recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget);
-    return match (days - average).abs() {
-        0 | 1 => Ordering::Equal,
-        _ => recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget).cmp(&average)
-    };
+    let average = total as f64 / window as f64;
+    let days = recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget) as f64;
+    return days - average;
 }
 
 fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
@@ -1023,10 +1020,10 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "))").unwrap();
             if overspent_total > dec!(0.0) {
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
-                let recover_date_drift_symbol = match is_recovery_getting_closer(&accumulated, fraction, budget) {
-                    Ordering::Less => "#sub(sym.arrow.br)",
-                    Ordering::Equal => "#sub(sym.arrow.r)",
-                    Ordering::Greater => "#sub(sym.arrow.tr)",
+                let recover_date_drift_symbol = {
+                    let derivative = is_recovery_getting_closer(&accumulated, fraction, budget);
+                    let angle = (derivative.clamp(-1.0, 1.0) / 2.0).asin();
+                    format!("#box(scale(75%, rotate({}deg, sym.arrow)))", -angle*180.0/PI)
                 };
                 writeln!(buf, "").unwrap();
                 writeln!(buf, "#v(1em)").unwrap();
