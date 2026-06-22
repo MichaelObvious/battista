@@ -538,7 +538,7 @@ fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fra
     }
     let average = total as f64 / window as f64;
     let days = recovery_days(*overspent_history.last().unwrap(), allowed_budget_fraction, today, budget) as f64;
-    return days - average;
+    return (days - average)*2.0 / window as f64;
 }
 
 fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
