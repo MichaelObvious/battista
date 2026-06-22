@@ -1022,7 +1022,7 @@ writeln!(buf, "#colbreak()").unwrap();
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 let recover_date_drift_symbol = {
                     let derivative = is_recovery_getting_closer(&accumulated, fraction, budget);
-                    let angle = (derivative.clamp(-1.0, 1.0) / 2.0).asin();
+                    let angle = (derivative * 2.0).atan() * 2.0 / PI;
                     format!("#box(scale(75%, rotate({}deg, sym.arrow)))", -angle*180.0/PI)
                 };
                 writeln!(buf, "").unwrap();
