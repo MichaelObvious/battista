@@ -529,7 +529,7 @@ fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start
 
 fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fraction: Decimal, budget: &BudgetTimeline) -> f64 {
     let today = Local::now().date_naive();
-    let window = 14.min(overspent_history.len() - 1) as i64;
+    let window = 28.min(overspent_history.len() - 1) as i64;
     let mut total = 0;
     for i in (-window)..0 {
         let overspent_total = overspent_history[(overspent_history.len()as i64 + i - 1) as usize];
@@ -884,8 +884,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    let monthly_total_budget = budget.accumulated_general(today, today+TimeDelta::days(30));
-    let mut budget_categories = budget.categories.iter().map(|(c,_)| (c, budget.accumulated_category(c, today, today + TimeDelta::days(30)))).collect::<Vec<_>>();
+    let monthly_total_budget = budget.accumulated_general(today, today+TimeDelta::days(29));
+    let mut budget_categories = budget.categories.iter().map(|(c,_)| (c, budget.accumulated_category(c, today, today + TimeDelta::days(29)))).collect::<Vec<_>>();
     budget_categories.sort_by_key(|(_,b)| -b);
     let mut total_allocated = dec!(0.0);
     for (category, monthly_budget) in budget_categories.iter() {
