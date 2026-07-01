@@ -1125,14 +1125,12 @@ writeln!(buf, "#colbreak()").unwrap();
             let (important_indices, important_dates) = {
                 let mut first_days = vec![];
                 let mut first_dates = vec![];
-                let mut current = today - TimeDelta::days(accumulated_length as i64);
                 let mut idx = 0;
-                while current <= today + TimeDelta::days(PREDICTION_LOOKAHEAD_DAYS as i64) {
+                for current in iter_days(today - TimeDelta::days(accumulated_length as i64 - 1), today + TimeDelta::days(PREDICTION_LOOKAHEAD_DAYS as i64)) {
                     if current.day() == 1 {
                         first_days.push(idx);
                         first_dates.push(current);
                     }
-                    current += TimeDelta::days(1);
                     idx += 1;
                 }
                 (first_days, first_dates)
