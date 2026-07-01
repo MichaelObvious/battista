@@ -212,13 +212,24 @@ impl BudgetTimeline {
         iter_days(start, end).map(|d| self.general_at(d)).sum()
     }
 
-    fn accumulated_category(
-        &self,
-        category: &str,
-        start: NaiveDate,
-        end: NaiveDate,
-    ) -> Money {
+    fn general_next_period(&self, start: NaiveDate, n_days: u64) -> Money {
+        self.accumulated_general(start, start + TimeDelta::days(n_days as i64 -1))
+    }
+
+    fn general_prev_period(&self, n_days: u64, end: NaiveDate) -> Money {
+        self.accumulated_general(end - TimeDelta::days(n_days as i64 - 1), end)
+    }
+
+    fn accumulated_category(&self, category: &Category, start: NaiveDate, end: NaiveDate) -> Money {
         iter_days(start, end).map(|d| self.category_at(category, d)).sum()
+    }
+
+    fn category_next_period(&self, category: &Category, start: NaiveDate, n_days: u64) -> Money {
+        self.accumulated_category(category, start, start + TimeDelta::days(n_days as i64 -1))
+    }
+
+    fn category_prev_period(&self, category: &Category, n_days: u64, end: NaiveDate) -> Money {
+        self.accumulated_category(category, end - TimeDelta::days(n_days as i64 - 1), end)
     }
 }
 
@@ -414,19 +425,23 @@ fn next_month(d: NaiveDate) -> NaiveDate {
     NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
 }
 
-fn days_in_month(d: NaiveDate) -> i64 {
+fn days_in_month(d: NaiveDate) -> u64 {
     let year = d.year();
     let month = d.month0() + 1;
-    (next_month(d)
+    let days = (next_month(d)
         - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
-    .num_days()
+    .num_days();
+    assert!(days >= 0);
+    days as u64
 }
 
-fn days_in_year(d: NaiveDate) -> i64 {
+fn days_in_year(d: NaiveDate) -> u64 {
     let year = d.year();
-    (NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
+    let days =  (NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
         - NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
-    .num_days()
+    .num_days();
+    assert!(days >= 0);
+    days as u64
 }
 
 fn validate_amount(amount: &str) -> bool {
@@ -713,6 +728,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
             .min(today + TimeDelta::days(1));
         let days = days_in_year(year_start);
         let days2 = (period_end - period_start).num_days()+1;
+        assert!(days2 >= 0);
+        let days2 = days2 as u64;
         let ndays = days.min(days2);
         assert!(ndays > 0);
         v.calc_averages(ndays as u64);
@@ -729,6 +746,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let period_end = (month_end + TimeDelta::days(1)).min(today + TimeDelta::days(1));
         let days = days_in_month(month_start);
         let days2 = (period_end - period_start).num_days()+1;
+        assert!(days2 >= 0);
+        let days2 = days2 as u64;
         let ndays = days.min(days2);
         assert!(ndays > 0);
         v.calc_averages(ndays as u64);
@@ -769,9 +788,9 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         writeln!(buf, "").unwrap();
         writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Budget*], [*Allowed spending*],").unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-        let n_days_accumulated =  budget.accumulated_general(today - TimeDelta::days(n_days as i64), today);
+        let n_days_accumulated =  budget.general_prev_period(n_days, today);
         for (category, amount) in stats.by_category.iter() {
-            let allowed_amount = budget.accumulated_category(category, today - TimeDelta::days(n_days as i64), today);
+            let allowed_amount = budget.category_prev_period(category, n_days, today);
             let allowed_amount = if allowed_amount > Money::ZERO {
                 if n_days_accumulated > stats.total || allowed_amount - amount <= dec!(0.0) {
                     let allowed = allowed_amount - *amount;
@@ -884,8 +903,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Category*], align(left, [*Allowed monthly amount*]), align(left, [*% of Total*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    let monthly_total_budget = budget.accumulated_general(today, today+TimeDelta::days(29));
-    let mut budget_categories = budget.categories.iter().map(|(c,_)| (c, budget.accumulated_category(c, today, today + TimeDelta::days(29)))).collect::<Vec<_>>();
+    let monthly_total_budget = budget.general_next_period(today, 30);
+    let mut budget_categories = budget.categories.iter().map(|(c,_)| (c, budget.category_next_period(c, today, 30))).collect::<Vec<_>>();
     budget_categories.sort_by_key(|(_,b)| -b);
     let mut total_allocated = dec!(0.0);
     for (category, monthly_budget) in budget_categories.iter() {
@@ -903,7 +922,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "))").unwrap();
 
     let min_budget = (monthly_total_budget
-    .min(budget.accumulated_general(today,today + TimeDelta::days(7)) * dec!(30) / dec!(7))
+    .min(budget.general_next_period(today, 7) * dec!(30) / dec!(7))
     .min(budget.general_at(today) * dec!(30)) / dec!(30)).round_dp(2);
 
 writeln!(buf, "#colbreak()").unwrap();
@@ -989,9 +1008,9 @@ writeln!(buf, "#colbreak()").unwrap();
     
     let mut accumulated = accumulated_overspending(&stats.transactions, budget);
     let next_month_budget = monthly_total_budget;
-    let mut allowed_next_month = next_month_budget + budget.accumulated_general(today - TimeDelta::days(30), today) - stats.last_n_days.get(&30).unwrap().total;
+    let mut allowed_next_month = next_month_budget + budget.general_prev_period(30, today) - stats.last_n_days.get(&30).unwrap().total;
     let overspent_total = accumulated.last().unwrap().clone();
-    let next_year_budget =  budget.accumulated_general(today, today + TimeDelta::days(365));
+    let next_year_budget =  budget.general_next_period(today, 365);
     let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - next_year_budget)/next_year_budget).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
     let month_fraction = allowed_next_month / next_month_budget * dec!(0.95);
     let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
@@ -1031,13 +1050,13 @@ writeln!(buf, "#colbreak()").unwrap();
             }
             writeln!(buf, "]))").unwrap();
 
-        } else if -*accumulated.last().unwrap() > budget.accumulated_general(today, today + TimeDelta::days(7)) {
+        } else if -*accumulated.last().unwrap() > budget.general_next_period(today, 7) {
             let mut days = 7;
             let spared = -*accumulated.last().unwrap();
-            while spared > budget.accumulated_general(today, today + TimeDelta::days(days)) {
+            while spared > budget.general_next_period(today, days) {
                 days += 1;
             }
-            days = days * 10 / 11;
+            days = days * 11 / 10;
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
             writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your budget plan that's around {} days' worth.])", spared, days).unwrap();
             writeln!(buf, "]))").unwrap();
@@ -1214,9 +1233,9 @@ writeln!(buf, "#colbreak()").unwrap();
                 NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
             };
             let d_total_days = if stats.start.year() == *y {
-                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days()
+                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as u64
             } else if stats.end.year() == *y && today.year() == *y {
-                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1)
+                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as u64
             } else {
                 days_in_year(year_start)
             };
@@ -1225,7 +1244,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average: Money = total * dec!(365.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
+        let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget: Money = accumulated_total_days*dec!(365.0)/Decimal::from(total_days);
         let overspending = total - accumulated_total_days;
         let percentage =  average*dec!(100.0)/average_budget;
@@ -1255,13 +1274,13 @@ writeln!(buf, "#colbreak()").unwrap();
                 NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
             };
             let days = if stats.start.year() == *y {
-                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days()
+                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as u64
             } else if stats.end.year() == *y && today.year() == *y {
-                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1)
+                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as u64
             } else {
                 days_in_year(year_start)
             };
-            let allowed = budget.accumulated_general(year_start, year_start + TimeDelta::days(days));
+            let allowed = budget.general_next_period(year_start, days as u64);
             if y_stats.total > allowed {
                 writeln!(buf, "([{}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
             } else if today.year() == *y {
@@ -1285,9 +1304,9 @@ writeln!(buf, "#colbreak()").unwrap();
                 NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
             };
             let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
-                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days()
+                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
             } else if stats.end.year() == *y && stats.start.month() == *m && today.year() == *y && today.month() == *m {
-                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1)
+                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1) as u64
             } else {
                 days_in_month(month_start)
             };
@@ -1296,7 +1315,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(30.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
+        let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget =accumulated_total_days*dec!(30.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
         let color = percentage_to_color(percentage/dec!(100.0));
@@ -1326,13 +1345,13 @@ writeln!(buf, "#colbreak()").unwrap();
                 NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
             };
             let n_days = if stats.start.year() == *y && stats.start.month() == *m {
-                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days()
+                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
             } else if stats.end.year() == *y && stats.end.month() == *m && today.year() == *y && today.month() == *m {
-                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1)
+                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1) as u64
             } else {
                 days_in_month(month_start)
             };
-            let allowed = budget.accumulated_general(month_start, month_start + TimeDelta::days(n_days));
+            let allowed = budget.general_next_period(month_start, n_days);
             if m_stats.total > allowed {
                 writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
             } else if today.month() == *m  && today.year() == *y {
@@ -1354,7 +1373,7 @@ writeln!(buf, "#colbreak()").unwrap();
         }
 
         let average = total * dec!(7.0) / Decimal::from(total_days);
-        let accumulated_total_days = budget.accumulated_general(today - TimeDelta::days(total_days-1), today);
+        let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget = accumulated_total_days*dec!(7.0)/Decimal::from(total_days);
         let percentage =  average*dec!(100.0)/average_budget;
         let overspent = total - accumulated_total_days;
