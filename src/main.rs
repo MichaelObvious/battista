@@ -451,7 +451,7 @@ fn validate_amount(amount: &str) -> bool {
     }
 
     if let Ok(parsed) = amount_str.parse::<Money>() {
-        parsed.fract().mantissa() < 100
+        parsed > Decimal::ZERO && parsed.fract().mantissa() < 100
     } else {
         false
     }
@@ -543,6 +543,10 @@ fn recovery_days(overspent_total: Money, allowed_budget_fraction: Decimal, start
 }
 
 fn is_recovery_getting_closer(overspent_history: &Vec<Money>, allowed_budget_fraction: Decimal, budget: &BudgetTimeline) -> f64 {
+    if overspent_history.len() == 1 {
+        return 0.0;
+    }
+
     let today = Local::now().date_naive();
     let window = 28.min(overspent_history.len() - 1) as i64;
     let mut total = 0;
@@ -1305,7 +1309,7 @@ writeln!(buf, "#colbreak()").unwrap();
             };
             let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
-            } else if stats.end.year() == *y && stats.start.month() == *m && today.year() == *y && today.month() == *m {
+            } else if stats.end.year() == *y && stats.end.month() == *m && today.year() == *y && today.month() == *m {
                 days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1) as u64
             } else {
                 days_in_month(month_start)
