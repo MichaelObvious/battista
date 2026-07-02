@@ -921,7 +921,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[_Unallocated_], [_`{:.0}`_], [_`{:.0}%`_],", monthly_total_budget - total_allocated, (dec!(100.0) - total_allocated * dec!(100.0) / monthly_total_budget).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "[*Total*], [`{:.0}`], ", monthly_total_budget).unwrap();
+    writeln!(buf, "[*Total*], [`{:.0}`], ", monthly_total_budget.round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
 
@@ -937,11 +937,11 @@ writeln!(buf, "#colbreak()").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", min_budget * dec!(30)).unwrap();
+    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", (min_budget * dec!(30)).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", min_budget * dec!(7)).unwrap();
+    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", (min_budget * dec!(7)).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", min_budget).unwrap();
+    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", min_budget.round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
