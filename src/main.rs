@@ -251,7 +251,6 @@ struct Stats {
     start: NaiveDate,
     #[allow(unused)]
     end: NaiveDate,
-    #[allow(unused)]
     per_day: Money,
     total: Money,
     by_category: Vec<(Category, Money)>,
@@ -1030,7 +1029,7 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
             writeln!(buf, "#align(center,text(fill: {color}, [You overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
-            writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
+            writeln!(buf, "#align(center, [#table(columns: 2, stroke: 0pt, align: (left, right, right), ").unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    [*Period* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*dec!(100.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
@@ -1040,7 +1039,10 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
             writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-            writeln!(buf, "))").unwrap();
+            writeln!(buf, "    )").unwrap();
+            writeln!(buf, "    #text(0.8em, [_For reference, your current average daily spending is around_ `{:.0}`])", stats.last_n_days.get(&30).unwrap().per_day.round()).unwrap();
+            writeln!(buf, "])").unwrap();
+            writeln!(buf, "#v(0.5em)").unwrap();
             if overspent_total > dec!(0.0) {
                 let recover_date = today + TimeDelta::days(recover_time_days.ceil().trunc().as_i128() as i64);
                 let recover_date_drift_symbol = {
