@@ -234,6 +234,7 @@ impl BudgetTimeline {
 }
 
 fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
+    assert!(start <= end);
     let mut cursor = start;
     std::iter::from_fn(move || {
         if cursor <= end {
@@ -251,7 +252,9 @@ struct Stats {
     start: NaiveDate,
     #[allow(unused)]
     end: NaiveDate,
-    per_day: Money,
+    per_day_median: Money,
+    #[allow(unused)]
+    per_day_average: Money,
     total: Money,
     by_category: Vec<(Category, Money)>,
     #[allow(unused)]
@@ -269,12 +272,14 @@ struct Stats {
 struct TempStats {
     start: NaiveDate,
     end: NaiveDate,
-    per_day: Money,
+    per_day_average: Money,
+    per_day_median: Money,
     total: Money,
     by_category: HashMap<Category, Money>,
     by_payment_method: HashMap<String, Money>,
     by_note: HashMap<String, Money>,
     by_day_of_week: HashMap<Weekday, Money>,
+    by_date: HashMap<NaiveDate, Money>,
     average_transaction: Money,
     transaction_count: u64,
 }
@@ -299,6 +304,7 @@ impl TempStats {
         *(self.by_note.get_mut(&e.note).unwrap()) += value;
 
         self.by_day_of_week.entry(e.date.weekday()).and_modify(|curr| *curr += value).or_insert(value);
+        self.by_date.entry(e.date).and_modify(|curr| *curr += value).or_insert(value);
 
         if self.start == NaiveDate::default() {
             self.start = e.date;
@@ -314,15 +320,31 @@ impl TempStats {
         self.transaction_count += 1;
     }
 
-    fn calc_averages(&mut self, days: u64) {
-        let days: Money = days.into();
-        self.per_day = self.total / days;
-        if self.transaction_count != 0 {
-            self.average_transaction = self.total / Decimal::from(self.transaction_count);
+    fn calc_averages(&mut self, start: NaiveDate, days: u64) {
+        self.per_day_average = self.total / Decimal::from(days);
+        
+        self.per_day_median = {
+            let mut daily_spend = Vec::with_capacity(days as usize);
+            let mut by_date = self.by_date.clone();
+            for d in iter_days(start, start + TimeDelta::days(days as i64 - 1)) {
+                daily_spend.push(by_date.remove(&d).unwrap_or(Money::ZERO));
+            }
+            assert!(by_date.len() == 0);
+            assert!(daily_spend.len() > 0);
+            daily_spend.sort();
+            if daily_spend.len() % 2 == 0 {
+                (daily_spend[daily_spend.len()/2] + daily_spend[daily_spend.len()/2 - 1])/dec!(2.0)
+            } else {
+                daily_spend[daily_spend.len()/2]
+            }
+        };
+
+        self.average_transaction =  if self.transaction_count != 0 {
+            self.total / Decimal::from(self.transaction_count)
         } else {
             assert!(self.total == dec!(0));
-            self.average_transaction = self.total;
-        }
+            self.total
+        };
     }
 
     fn into_stats(mut self) -> Stats {
@@ -343,7 +365,8 @@ impl TempStats {
         Stats {
             start: self.start,
             end: self.end,
-            per_day: self.per_day,
+            per_day_average: self.per_day_average,
+            per_day_median: self.per_day_median,
             total: self.total,
             by_category,
             by_payment_method,
@@ -735,7 +758,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let days2 = days2 as u64;
         let ndays = days.min(days2);
         assert!(ndays > 0);
-        v.calc_averages(ndays as u64);
+        v.calc_averages(period_start, ndays as u64);
     }
 
     for (k, v) in tsc.monthly.iter_mut() {
@@ -753,7 +776,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let days2 = days2 as u64;
         let ndays = days.min(days2);
         assert!(ndays > 0);
-        v.calc_averages(ndays as u64);
+        v.calc_averages(period_start, ndays as u64);
     }
 
     for (week, v) in tsc.weekly.iter_mut() {
@@ -761,12 +784,12 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let week_end = today.min(week_start + TimeDelta::days(7));
         let ndays = (week_end - week_start).num_days()+1;
         assert!(ndays > 0);
-        v.calc_averages(ndays as u64);
+        v.calc_averages(week_start, ndays as u64);
     }
 
     let ns = tsc.last_n_days.keys().map(|x| *x).collect::<Vec<_>>();
     for n in ns.into_iter() {
-        tsc.last_n_days.get_mut(&n).unwrap().calc_averages(n);
+        tsc.last_n_days.get_mut(&n).unwrap().calc_averages(today - TimeDelta::days(n as i64 - 1), n);
     }
 
     return tsc.into_stats_collection();
@@ -1040,7 +1063,7 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    )").unwrap();
-            writeln!(buf, "    #text(0.8em, [_For reference, your current average daily spending is around_ `{:.0}`])", stats.last_n_days.get(&30).unwrap().per_day.round()).unwrap();
+            writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&30).unwrap().per_day_median.round()).unwrap();
             writeln!(buf, "])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
             if overspent_total > dec!(0.0) {
