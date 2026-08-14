@@ -331,6 +331,7 @@ impl TempStats {
             }
             assert!(by_date.len() == 0);
             assert!(daily_spend.len() > 0);
+            assert!(daily_spend.len() == days as usize);
             daily_spend.sort();
             if daily_spend.len() % 2 == 0 {
                 (daily_spend[daily_spend.len()/2] + daily_spend[daily_spend.len()/2 - 1])/dec!(2.0)
