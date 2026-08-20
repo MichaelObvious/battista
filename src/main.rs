@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    cmp::Ordering, collections::{BTreeMap, HashMap, HashSet}, env, f64::consts::PI, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
+    cmp::{Ord, Ordering}, collections::{BTreeMap, HashMap, HashSet}, env, f64::consts::PI, fmt::Debug, fs, io::{self, Write}, path::PathBuf, process::{Command, exit}
 };
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
@@ -247,13 +247,23 @@ fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate
     })
 }
 
+fn median(array: &[Decimal]) -> Decimal {
+    let mut array = array.to_owned();
+    array.sort();
+    if array.len() % 2 == 0 {
+        (array[array.len()/2] + array[array.len()/2 - 1])/dec!(2.0)
+    } else {
+        array[array.len()/2]
+    }
+}
+
 #[derive(Debug, Default)]
 struct Stats {
     start: NaiveDate,
     #[allow(unused)]
     end: NaiveDate,
-    per_day_median: Money,
     #[allow(unused)]
+    per_day_median: Money,
     per_day_average: Money,
     total: Money,
     by_category: Vec<(Category, Money)>,
@@ -332,12 +342,7 @@ impl TempStats {
             assert!(by_date.len() == 0);
             assert!(daily_spend.len() > 0);
             assert!(daily_spend.len() == days as usize);
-            daily_spend.sort();
-            if daily_spend.len() % 2 == 0 {
-                (daily_spend[daily_spend.len()/2] + daily_spend[daily_spend.len()/2 - 1])/dec!(2.0)
-            } else {
-                daily_spend[daily_spend.len()/2]
-            }
+            median(&daily_spend)
         };
 
         self.average_transaction =  if self.transaction_count != 0 {
@@ -1064,7 +1069,7 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    )").unwrap();
-            writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&30).unwrap().per_day_median.round()).unwrap();
+            writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&30).unwrap().per_day_average.round()).unwrap();
             writeln!(buf, "])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
             if overspent_total > dec!(0.0) {
@@ -1164,7 +1169,7 @@ writeln!(buf, "#colbreak()").unwrap();
                     points.push((idx, overspent));
                     let days_delta = idx as i64 - accumulated_length as i64 + 1;
                     budget.general_at(today + TimeDelta::days(days_delta));
-                    overspent -= budget.general_at(today + TimeDelta::days(days_delta)) - stats.last_n_days[&365].per_day_median;
+                    overspent -= budget.general_at(today + TimeDelta::days(days_delta)) - stats.last_n_days[&365].per_day_average;
                     idx += 1;
                 }
 
