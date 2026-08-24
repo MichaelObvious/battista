@@ -19,7 +19,7 @@ struct Transaction {
     date: NaiveDate,
     category: Category,
     payment_method: String,
-    note: String,
+    notes: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -308,10 +308,12 @@ impl TempStats {
         }
         *(self.by_payment_method.get_mut(&e.payment_method).unwrap()) += value;
 
-        if !self.by_note.contains_key(&e.note) {
-            self.by_note.insert(e.note.clone(), Money::ZERO);
+        for note in &e.notes {
+            if !self.by_note.contains_key(note) {
+                self.by_note.insert(note.clone(), Money::ZERO);
+            }
+            *(self.by_note.get_mut(note).unwrap()) += value;
         }
-        *(self.by_note.get_mut(&e.note).unwrap()) += value;
 
         self.by_day_of_week.entry(e.date.weekday()).and_modify(|curr| *curr += value).or_insert(value);
         self.by_date.entry(e.date).and_modify(|curr| *curr += value).or_insert(value);
@@ -636,7 +638,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         category: attributes.get("category").unwrap_or(&String::default()).trim().to_owned(),
                         date: NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap(),
                         value: attributes.get("amount").unwrap().parse::<Money>().unwrap(),
-                        note: if attributes.contains_key("note") { attributes.get("note").unwrap().to_owned() } else { String::default() },
+                        notes: if attributes.contains_key("note") { attributes.get("note").unwrap().split(";").map(|x| x.trim().to_owned()).collect::<HashSet<_>>() } else { HashSet::new() },
                         payment_method: attributes.get("payment-method").unwrap().trim().to_owned(),
                     });
                 },
