@@ -1056,10 +1056,7 @@ writeln!(buf, "#colbreak()").unwrap();
     writeln!(buf, "#v(1fr)").unwrap();
     {
         let color = if allowed_next_month < next_month_budget * dec!(0.67) { "red" } else if allowed_next_month < next_month_budget * dec!(0.85) { "orange" } else { "black" };
-        if allowed_next_month < next_month_budget * dec!(0.75) {
-            allowed_next_month = allowed_next_month.max(next_month_budget * RECOVERY_PLAN_MIN_BUDGET_FRACTION * (dec!(1.0)/dec!(0.95)));
-        }
-        if allowed_next_month < next_month_budget || *accumulated.last().unwrap() > dec!(0.0) {
+        if *accumulated.last().unwrap() > dec!(0.0) {
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + {}, inset: 2em, [", color).unwrap();
             writeln!(buf, "#align(center,text(fill: {color}, [You overspent in the last period.]) + [\\ For the next month, we suggest the following budget.])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
