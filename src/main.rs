@@ -1045,7 +1045,7 @@ writeln!(buf, "#colbreak()").unwrap();
     
     let mut accumulated = accumulated_overspending(&stats.transactions, budget);
     let next_month_budget = monthly_total_budget;
-    let mut allowed_next_month = next_month_budget + budget.general_prev_period(30, today) - stats.last_n_days.get(&30).unwrap().total;
+    let allowed_next_month = next_month_budget + budget.general_prev_period(30, today) - stats.last_n_days.get(&30).unwrap().total;
     let overspent_total = accumulated.last().unwrap().clone();
     let next_year_budget =  budget.general_next_period(today, 365);
     let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - next_year_budget)/next_year_budget).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
