@@ -926,7 +926,10 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "#pagebreak(weak: true)").unwrap();
 
     writeln!(buf, "").unwrap();
-    writeln!(buf, "#outline()").unwrap();
+    writeln!(buf, "#[").unwrap();
+    writeln!(buf, "    #set page(margin: (x: 7.5cm))").unwrap();
+    writeln!(buf, "    #outline()").unwrap();
+    writeln!(buf, "]").unwrap();
     writeln!(buf, "").unwrap();
 
     writeln!(buf, "= Budget").unwrap();
