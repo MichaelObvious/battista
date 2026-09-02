@@ -1347,8 +1347,8 @@ writeln!(buf, "#colbreak()").unwrap();
             };
             let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
-            } else if stats.end.year() == *y && stats.end.month() == *m && today.year() == *y && today.month() == *m {
-                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1) as u64
+            } else if /*stats.end.year() == *y && stats.end.month() == *m ||*/ today.year() == *y && today.month() == *m {
+                (month_start - today).num_days() as u64 + 1
             } else {
                 days_in_month(month_start)
             };
@@ -1388,8 +1388,8 @@ writeln!(buf, "#colbreak()").unwrap();
             };
             let n_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
-            } else if stats.end.year() == *y && stats.end.month() == *m && today.year() == *y && today.month() == *m {
-                days_in_month(month_start) - ((next_month(month_start) - today).num_days() - 1) as u64
+            } else if today.year() == *y && today.month() == *m {
+                (month_start - today).num_days() as u64 + 1
             } else {
                 days_in_month(month_start)
             };
