@@ -986,8 +986,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     let mut slices  = Vec::new();
 
     for (category, monthly_budget) in budget_categories.iter() {
-        total_allocated += monthly_budget;
-        if *monthly_budget > dec!(0) && (monthly_budget / monthly_total_budget) * dec!(100) >= dec!(1) {
+        if *monthly_budget > dec!(0) && (monthly_budget / monthly_total_budget) * dec!(100) >= dec!(2) {
+            total_allocated += monthly_budget;
             slices.push((category.to_owned().to_owned(), *monthly_budget));
         }
     }

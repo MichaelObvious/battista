@@ -11,3 +11,4 @@
 *.typ
 *.xml
 example/
+.vscode/
