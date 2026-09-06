@@ -958,23 +958,18 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
 
-    let min_budget = (monthly_total_budget
-    .min(budget.general_next_period(today, 7) * dec!(30) / dec!(7))
-    .min(budget.general_at(today) * dec!(30)) / dec!(30)).round_dp(2);
-
-writeln!(buf, "#colbreak()").unwrap();
+    writeln!(buf, "#colbreak()").unwrap();
     
     writeln!(buf, "#align(center, text([*Per Period*], 18pt)) ").unwrap();
-    writeln!(buf, "#align(center, [_Conservative indicative values_]) ").unwrap();
     writeln!(buf, "#align(center, table(columns: 2, stroke: 0pt, align: (left, right), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "[*Period*], align(left, [*Allowed amount*]), ").unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-    writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", (min_budget * dec!(30)).round()).unwrap();
+    writeln!(buf, "    [_Next month_], align(right, [`{:.0}`]),", monthly_total_budget.round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", (min_budget * dec!(7)).round()).unwrap();
+    writeln!(buf, "    [_Next week_],  align(right, [`{:.0}`]),", budget.general_next_period(today, 7).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-    writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", min_budget.round()).unwrap();
+    writeln!(buf, "    [_Next day_],   align(right, [`{:.0}`]),", budget.general_at(today).round()).unwrap();
     writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
     writeln!(buf, "))").unwrap();
     writeln!(buf, "])").unwrap();
@@ -1064,11 +1059,11 @@ writeln!(buf, "#colbreak()").unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    [*Period* #h(2em)], [*Allowed amount* (`{:.0}%` _of user budget_)],", fraction*dec!(100.0)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
-            writeln!(buf, "    [_Per month_], align(right, [`{:.0}`]),", fraction * min_budget * dec!(30)).unwrap();
+            writeln!(buf, "    [_Next month_], align(right, [`{:.0}`]),", fraction * monthly_total_budget).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per week_],  align(right, [`{:.0}`]),", fraction * min_budget * dec!(7.0)).unwrap();
+            writeln!(buf, "    [_Next week_],  align(right, [`{:.0}`]),", fraction * budget.general_next_period(today, 7)).unwrap();
             writeln!(buf, "    table.hline(stroke: 0.5pt),").unwrap();
-            writeln!(buf, "    [_Per day_],   align(right, [`{:.0}`]),", fraction * min_budget).unwrap();
+            writeln!(buf, "    [_Next day_],   align(right, [`{:.0}`]),", fraction * budget.general_at(today)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    )").unwrap();
             writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&30).unwrap().per_day_average.round()).unwrap();
