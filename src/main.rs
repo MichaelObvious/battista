@@ -234,7 +234,7 @@ impl BudgetTimeline {
 }
 
 fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate> {
-    assert!(start <= end);
+    assert!(start <= end, "{} <= {}?", start, end);
     let mut cursor = start;
     std::iter::from_fn(move || {
         if cursor <= end {
@@ -1348,11 +1348,15 @@ writeln!(buf, "#colbreak()").unwrap();
             let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
             } else if /*stats.end.year() == *y && stats.end.month() == *m ||*/ today.year() == *y && today.month() == *m {
-                (month_start - today).num_days() as u64 + 1
+                ((today - month_start).num_days() + 1) as u64
             } else {
                 days_in_month(month_start)
             };
             total += m_stats.total;
+            if d_total_days > 35 {
+                let x = format!("{:?} -> {:?}", month_start, today);
+                println!("{x}: {:?}", d_total_days);
+            }
             total_days += d_total_days;
         }
 
@@ -1389,7 +1393,7 @@ writeln!(buf, "#colbreak()").unwrap();
             let n_days = if stats.start.year() == *y && stats.start.month() == *m {
                 days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
             } else if today.year() == *y && today.month() == *m {
-                (month_start - today).num_days() as u64 + 1
+                (today - month_start).num_days() as u64 + 1
             } else {
                 days_in_month(month_start)
             };
