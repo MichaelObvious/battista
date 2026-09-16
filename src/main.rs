@@ -1082,15 +1082,15 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             }
             writeln!(buf, "]))").unwrap();
 
-        } else if -*accumulated.last().unwrap() > budget.general_next_period(today, 7) {
+        } else if -*accumulated.last().unwrap() > stats.last_n_days[&365].per_day_average * dec!(7) {
             let mut days = 7;
             let spared = -*accumulated.last().unwrap();
-            while spared > budget.general_next_period(today, days) {
+            while spared > stats.last_n_days[&365].per_day_average * Decimal::from(days) {
                 days += 1;
             }
             days = days * 11 / 10;
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
-            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your budget plan that's around {} days' worth.])", spared, days).unwrap();
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {} days' worth.])", spared, days).unwrap();
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
