@@ -1094,6 +1094,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
+        } else {
+            writeln!(buf, "#align(center, [You spent on average `{:.0}` a day.])", stats.last_n_days[&365].per_day_average.round()).unwrap();
         }
 
         {
