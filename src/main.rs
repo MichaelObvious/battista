@@ -1166,10 +1166,10 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 }
                 let avg_spending = stats.last_n_days[&365].per_day_average.max(stats.last_n_days[&30].per_day_average);
                 while points.len() < PREDICTION_LOOKAHEAD_DAYS {
-                    points.push((idx, overspent));
                     let days_delta = idx as i64 - accumulated_length as i64 + 1;
                     budget.general_at(today + TimeDelta::days(days_delta));
                     overspent -= budget.general_at(today + TimeDelta::days(days_delta)) - avg_spending;
+                    points.push((idx, overspent));
                     idx += 1;
                 }
 
