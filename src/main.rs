@@ -601,11 +601,11 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
     loop {
         match reader.read_event() {
             Ok(Event::Eof) => break,
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => match String::from_utf8(e.name().as_ref().to_vec()).unwrap().as_str() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => match e.name().as_ref() {
                 "budget" => {
                     let attributes =  e.attributes().map(|x| {
                         let x = x.unwrap();
-                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                        (x.key.as_ref().to_owned(), x.value.as_ref().to_owned())
                     }).collect::<HashMap<_,_>>();
                     let pot_category = attributes.get("category");
                     let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
@@ -620,7 +620,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                         budget.set_category(category, date, rate);
                     } else {
                         if amount_str.ends_with('%') {
-                            eprintln!("[ERROR] No percentage allowed in general budget: `{}`.\n        Either add category or insert an absolute amount.", String::from_utf8(e.to_vec()).unwrap());
+                            eprintln!("[ERROR] No percentage allowed in general budget: `{}`.\n        Either add category or insert an absolute amount.", e.as_ref());
                             exit(1);
                         }
                         budget.set_general(date, amount_str.parse::<Money>().unwrap(), attributes.get("duration").unwrap().parse::<Decimal>().unwrap());
@@ -630,7 +630,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                 "transaction" => {
                     let attributes =  e.attributes().map(|x| {
                         let x = x.unwrap();
-                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                        (x.key.as_ref().to_owned(), x.value.as_ref().to_owned())
                     }).collect::<HashMap<_,_>>();
 
                     // assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
@@ -645,7 +645,7 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                 "extra" => {
                     let attributes =  e.attributes().map(|x| {
                         let x = x.unwrap();
-                        (String::from_utf8(x.key.as_ref().to_vec()).unwrap(), String::from_utf8(x.value.as_ref().to_vec()).unwrap())
+                        (x.key.as_ref().to_owned(), x.value.as_ref().to_owned())
                     }).collect::<HashMap<_,_>>();
 
                     // assert!(attributes.get("amount").unwrap().chars().skip_while(|c| *c != '.').take_while(|c| c.is_numeric()).collect::<Vec<_>>().len() <= 2);
@@ -1509,7 +1509,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
                 match e.name().as_ref() {
-                    b"budget" => {
+                    "budget" => {
                         let mut category = None;
                         let mut amount = None;
                         let mut duration = None;
@@ -1517,8 +1517,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
 
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
-                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
-                            let value = String::from_utf8_lossy(&attr.value).to_string();
+                            let key = attr.key.0.to_string();
+                            let value = attr.value.to_string();
 
                             match key.as_str() {
                                 "category" => category = Some(value),
@@ -1537,10 +1537,10 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 date,
                             });
                         } else {
-                            eprintln!("[WARNING]: Incomplete tag: `{}`.", String::from_utf8(e.to_vec()).unwrap());
+                            eprintln!("[WARNING]: Incomplete tag: `{}`.", e.as_ref().to_owned());
                         }
                     }
-                    b"transaction" => {
+                    "transaction" => {
                         let mut amount = None;
                         let mut category = None;
                         let mut date = None;
@@ -1549,8 +1549,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
 
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
-                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
-                            let value = String::from_utf8_lossy(&attr.value).to_string();
+                            let key = attr.key.0.to_owned();
+                            let value = attr.value.as_ref().to_owned();
 
                             match key.as_str() {
                                 "amount" => amount = Some(value),
@@ -1572,10 +1572,10 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 note: note.unwrap_or_default(),
                             });
                         } else {
-                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
+                            eprintln!("[WARNING]: Incomplete tag: {}", e.as_ref().to_owned());
                         }
                     },
-                    b"extra" => {
+                    "extra" => {
                         let mut amount = None;
                         let mut date = None;
                         let mut payment_method = None;
@@ -1583,8 +1583,8 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
 
                         for attr in e.attributes() {
                             let attr = attr.unwrap();
-                            let key = String::from_utf8_lossy(&attr.key.0).to_string();
-                            let value = String::from_utf8_lossy(&attr.value).to_string();
+                            let key = attr.key.0.to_owned();
+                            let value = attr.value.as_ref().to_owned();
 
                             match key.as_str() {
                                 "amount" => amount = Some(value),
@@ -1604,7 +1604,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                                 note: note.unwrap_or_default(),
                             });
                         } else {
-                            eprintln!("[WARNING]: Incomplete tag: {}", String::from_utf8(e.to_vec()).unwrap());
+                            eprintln!("[WARNING]: Incomplete tag: {}", e.as_ref().to_owned());
                         }
                     },
                     _ => {}
