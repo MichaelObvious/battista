@@ -1110,7 +1110,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             let spared = -*accumulated.last().unwrap();
 
             fn predict(step: Money, spared: Money) -> i32 {
-                (spared * dec!(1.025) / step.max(dec!(0.01))).ceil().as_i128() as i32
+                (spared * dec!(0.975) / step.max(dec!(0.01))).ceil().as_i128() as i32
             }
             
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
