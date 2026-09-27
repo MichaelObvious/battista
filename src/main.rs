@@ -1668,10 +1668,19 @@ fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io
                     (true, false) => return Ordering::Greater,
                     _ => {}
                 }
-                let a_per_day = a_amt.parse::<Money>().unwrap_or(dec!(1.0))
-                    / a_dur.clone().map(|x| x.parse::<Money>().unwrap_or(dec!(0.000001))).unwrap_or(dec!(0.000001));
-                let b_per_day = b_amt.parse::<Money>().unwrap_or(dec!(1.0))
-                    / b_dur.clone().map(|x| x.parse::<Money>().unwrap_or(dec!(0.000001))).unwrap_or(dec!(0.000001));
+
+                let a_amount = if a_amt.contains("%") {
+                    a_amt.replace("%", "").parse::<Money>().unwrap()
+                } else {
+                    a_amt.parse::<Money>().unwrap()
+                };
+                let b_amount = if a_amt.contains("%") {
+                    b_amt.replace("%", "").parse::<Money>().unwrap()
+                } else {
+                    b_amt.parse::<Money>().unwrap()
+                };
+                let a_per_day = a_amount / a_dur.clone().map(|x| x.parse::<Money>().unwrap()).unwrap_or(dec!(0.000001));
+                let b_per_day = b_amount / b_dur.clone().map(|x| x.parse::<Money>().unwrap()).unwrap_or(dec!(0.000001));
                 b_per_day.partial_cmp(&a_per_day).unwrap()
             }
 
