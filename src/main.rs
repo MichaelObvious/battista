@@ -27,7 +27,7 @@ enum DBEntry {
     Budget{
         category: Option<String>,
         amount: String,
-        duration: String,
+        duration: Option<String>,
         date: String,
     },
     Transaction{
@@ -1529,7 +1529,7 @@ fn parse_raw_xml(file_path: &PathBuf) -> Vec<DBEntry> {
                             }
                         }
 
-                        if let (Some(amount), Some(duration), Some(date)) = (amount, duration, date) {
+                        if let (Some(amount), Some(date)) = (amount, date) {
                             db_entries.push(Budget {
                                 category,
                                 amount,
@@ -1668,10 +1668,10 @@ fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io
                     (true, false) => return Ordering::Greater,
                     _ => {}
                 }
-                let a_per_day = a_amt.parse::<Money>().unwrap()
-                    / a_dur.parse::<Money>().unwrap();
-                let b_per_day = b_amt.parse::<Money>().unwrap()
-                    / b_dur.parse::<Money>().unwrap();
+                let a_per_day = a_amt.parse::<Money>().unwrap_or(dec!(1.0))
+                    / a_dur.clone().map(|x| x.parse::<Money>().unwrap_or(dec!(0.000001))).unwrap_or(dec!(0.000001));
+                let b_per_day = b_amt.parse::<Money>().unwrap_or(dec!(1.0))
+                    / b_dur.clone().map(|x| x.parse::<Money>().unwrap_or(dec!(0.000001))).unwrap_or(dec!(0.000001));
                 b_per_day.partial_cmp(&a_per_day).unwrap()
             }
 
@@ -1684,17 +1684,21 @@ fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io
     for e in db_entries {
         match e {
             Budget{amount, category, duration, date} => {
+                content.push_str("<budget ");
                 if let Some(category) = category {
                     content.push_str(&format!(
-                        "<budget category=\"{}\" amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                        category, amount, duration, date
-                    ));
-                } else {
-                    content.push_str(&format!(
-                        "<budget amount=\"{}\" duration=\"{}\" date=\"{}\"/>\n",
-                        amount, duration, date
+                        "category=\"{}\" ",
+                        category
                     ));
                 }
+                content.push_str(&format!("amount=\"{}\" ", amount));
+                if let Some(duration) = duration {
+                    content.push_str(&format!(
+                        "duration=\"{}\" ",
+                        duration
+                    ));
+                }
+                content.push_str(&format!("date=\"{}\"/>\n", date));
             },
             Transaction{amount, category, date, payment_method, note} => {
                 content.push_str(&format!(
