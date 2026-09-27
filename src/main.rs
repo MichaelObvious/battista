@@ -248,13 +248,32 @@ fn iter_days(start: NaiveDate, end: NaiveDate) -> impl Iterator<Item = NaiveDate
 }
 
 fn median(array: &[Decimal]) -> Decimal {
-    let mut array = array.to_owned();
-    array.sort();
+    assert!(array.len()>0);
     if array.len() % 2 == 0 {
         (array[array.len()/2] + array[array.len()/2 - 1])/dec!(2.0)
     } else {
         array[array.len()/2]
     }
+}
+
+fn percentile(sorted: &[Decimal], p: Decimal) -> Decimal {
+    let n = sorted.len();
+    assert!(n>0);
+    if n == 1 {
+        return sorted[0];
+    }
+
+    let rank = (p / dec!(100.0)) * Decimal::from(n - 1);
+    let lower_idx = rank.floor();
+    let lower = lower_idx.as_i128() as usize;
+    let upper = (lower + 1).min(n - 1);
+    let frac = rank - lower_idx;
+
+    sorted[lower] + frac * (sorted[upper] - sorted[lower])
+}
+
+fn percentiles_95(sorted: &[Decimal]) -> (Decimal, Decimal) {
+    (percentile(sorted, dec!(2.5)), percentile(sorted, dec!(97.5)))
 }
 
 #[derive(Debug, Default)]
@@ -265,6 +284,7 @@ struct Stats {
     #[allow(unused)]
     per_day_median: Money,
     per_day_average: Money,
+    per_day_95percentiles: (Money, Money),
     total: Money,
     by_category: Vec<(Category, Money)>,
     #[allow(unused)]
@@ -284,6 +304,7 @@ struct TempStats {
     end: NaiveDate,
     per_day_average: Money,
     per_day_median: Money,
+    per_day_95percentiles: (Money, Money),
     total: Money,
     by_category: HashMap<Category, Money>,
     by_payment_method: HashMap<String, Money>,
@@ -335,7 +356,7 @@ impl TempStats {
     fn calc_averages(&mut self, start: NaiveDate, days: u64) {
         self.per_day_average = self.total / Decimal::from(days);
         
-        self.per_day_median = {
+        (self.per_day_median, self.per_day_95percentiles) = {
             let mut daily_spend = Vec::with_capacity(days as usize);
             let mut by_date = self.by_date.clone();
             for d in iter_days(start, start + TimeDelta::days(days as i64 - 1)) {
@@ -344,7 +365,8 @@ impl TempStats {
             assert!(by_date.len() == 0);
             assert!(daily_spend.len() > 0);
             assert!(daily_spend.len() == days as usize);
-            median(&daily_spend)
+            daily_spend.sort();
+            (median(&daily_spend), percentiles_95(&daily_spend))
         };
 
         self.average_transaction =  if self.transaction_count != 0 {
@@ -375,6 +397,7 @@ impl TempStats {
             end: self.end,
             per_day_average: self.per_day_average,
             per_day_median: self.per_day_median,
+            per_day_95percentiles: self.per_day_95percentiles,
             total: self.total,
             by_category,
             by_payment_method,
@@ -1083,14 +1106,15 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "]))").unwrap();
 
         } else if -*accumulated.last().unwrap() > stats.last_n_days[&365].per_day_average * dec!(7) {
-            let mut days = 7;
+
             let spared = -*accumulated.last().unwrap();
-            while spared > stats.last_n_days[&365].per_day_average * Decimal::from(days) {
-                days += 1;
+
+            fn predict(step: Money, spared: Money) -> i32 {
+                (spared * dec!(1.025) / step.max(dec!(0.01))).ceil().as_i128() as i32
             }
-            days = days * 11 / 10;
+            
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
-            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {} days' worth.])", spared, days).unwrap();
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {}#sub[({})] days' worth.])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared)).unwrap();
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
