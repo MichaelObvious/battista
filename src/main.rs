@@ -273,7 +273,7 @@ fn percentile(sorted: &[Decimal], p: Decimal) -> Decimal {
 }
 
 fn percentiles_95(sorted: &[Decimal]) -> (Decimal, Decimal) {
-    (percentile(sorted, dec!(2.5)), percentile(sorted, dec!(97.5)))
+    (percentile(sorted, dec!(0.0)), percentile(sorted, dec!(95)))
 }
 
 #[derive(Debug, Default)]
@@ -1110,11 +1110,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             let spared = -*accumulated.last().unwrap();
 
             fn predict(step: Money, spared: Money) -> i32 {
-                (spared * dec!(0.975) / step.max(dec!(0.01))).ceil().as_i128() as i32
+                (spared * dec!(0.975) / step.max(dec!(0.01))).floor().as_i128() as i32
             }
             
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
-            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {}#sub[({})] days' worth.])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared)).unwrap();
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {}#sub[({})] days' worth\\ ] + [_(at your average spending of `{:.0}`#sub[`({:.0})`] a day)_])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared), stats.last_n_days[&365].per_day_average.round(), stats.last_n_days[&365].per_day_95percentiles.1.round()).unwrap();
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
@@ -1247,7 +1247,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             }
             writeln!(buf).unwrap();
             writeln!(buf, "plot.plot(").unwrap();
-            writeln!(buf, "    size: ({}, 3),", CANVAS_SIZE_X).unwrap();
+            writeln!(buf, "    size: ({}, 3.5),", CANVAS_SIZE_X).unwrap();
             writeln!(buf, "    axis-style: none,").unwrap();
             writeln!(buf, "    {{").unwrap();
             for x in important_indices {
@@ -1352,15 +1352,15 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 writeln!(buf, "([{}], {}),", y, y_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (16, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Year], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (20, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Year], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
-    writeln!(buf, "= 12 Month Overview").unwrap();
+    writeln!(buf, "= 14 Month Overview").unwrap();
     writeln!(buf, "").unwrap();
         let mut total = dec!(0.0);
         let mut total_days = 0;
-        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..14).map(|x| x.0).rev() {
             let month_start = if stats.start.month() == *m && stats.start.year() == *y {
                 m_stats.start
             } else {
@@ -1405,7 +1405,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
-        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+        for ((y, m), m_stats) in stats.monthly.iter().rev().zip(0..14).map(|x| x.0).rev() {
             let month_start = if stats.start.month() == *m && stats.start.year() == *y {
                 m_stats.start
             } else {
@@ -1419,24 +1419,29 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 days_in_month(month_start)
             };
             let allowed = budget.general_next_period(month_start, n_days);
-            if m_stats.total > allowed {
-                writeln!(buf, "([{:02}/{}], ({}, {})),", m, y%100, allowed, m_stats.total - allowed).unwrap();
-            } else if today.month() == *m  && today.year() == *y {
-                writeln!(buf, "([{:02}/{}], ({}, 0, {})),", m, y%100, m_stats.total, allowed - m_stats.total).unwrap();
+            let label = if *m == 1 {
+                format!("#underline[{:02}/{:02}]", m, y%100)
             } else {
-                writeln!(buf, "([{:02}/{}], {}),", m, y%100, m_stats.total).unwrap();
+                format!("{:02}/{:02}", m, y%100)
+            };
+            if m_stats.total > allowed {
+                writeln!(buf, "([{}], ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
+            } else if today.month() == *m  && today.year() == *y {
+                writeln!(buf, "([{}], ({}, 0, {})),", label, m_stats.total, allowed - m_stats.total).unwrap();
+            } else {
+                writeln!(buf, "([{}], {}),", label, m_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (14, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Month], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (20, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Month], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
-    writeln!(buf, "= 12 Weeks Overview").unwrap();
+    writeln!(buf, "= 26 Weeks Overview").unwrap();
     writeln!(buf, "").unwrap();
         let mut total = dec!(0.0);
-        let total_days = 7*11 + today.weekday().num_days_from_sunday() as i64;
-        for (_, m_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
-            total += m_stats.total;
+        let total_days = 7*25 + today.weekday().num_days_from_sunday() as i64;
+        for (_, w_stats) in stats.weekly.iter().rev().zip(0..26).map(|x| x.0).rev() {
+            total += w_stats.total;
         }
 
         let average = total * dec!(7.0) / Decimal::from(total_days);
@@ -1463,7 +1468,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         writeln!(buf, "import cetz.draw: *").unwrap();
         writeln!(buf, "import cetz-plot: *").unwrap();
         writeln!(buf, "chart.columnchart((").unwrap();
-        for (week, w_stats) in stats.weekly.iter().rev().zip(0..12).map(|x| x.0).rev() {
+        for (week, w_stats) in stats.weekly.iter().rev().zip(0..26).map(|x| x.0).rev() {
             let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
             let week_end = if today.iso_week() == *week {
                 week_start + TimeDelta::days(today.signed_duration_since(week_start).num_days())
@@ -1474,17 +1479,18 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             let label = if (week_start - TimeDelta::days(7)).month() != week_start.month() {
                 format!("#underline[{:02}/{:02}]", week_start.day(), week_start.month())
             } else {
-                format!("{:02}/{:02}", week_start.day(), week_start.month())
+                format!("{:02}", week_start.day())
             };
+            
             if w_stats.total > allowed {
-                writeln!(buf, "(text(10pt, [{}]), ({}, {})),", label, allowed, w_stats.total - allowed).unwrap();
+                writeln!(buf, "([{}], ({}, {})),", label, allowed, w_stats.total - allowed).unwrap();
             } else if today.iso_week() == *week {
-                writeln!(buf, "(text(10pt,[{}]), ({}, 0, {})),", label, w_stats.total, allowed - w_stats.total).unwrap();
+                writeln!(buf, "([{}], ({}, 0, {})),", label, w_stats.total, allowed - w_stats.total).unwrap();
             } else {
-                writeln!(buf, "(text(10pt,[{}]), {}),", label, w_stats.total).unwrap();
+                writeln!(buf, "([{}], {}),", label, w_stats.total).unwrap();
             }
         }
-        writeln!(buf, "), mode: \"stacked\", size: (12, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Week], y-label: [Amount spent])").unwrap();
+        writeln!(buf, "), mode: \"stacked\", size: (20, 8), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Week], y-label: [Amount spent])").unwrap();
         writeln!(buf, "}})]").unwrap();
 
     writeln!(buf, "").unwrap();
@@ -1698,7 +1704,7 @@ fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io
                 } else {
                     a_amt.parse::<Money>().unwrap()
                 };
-                let b_amount = if a_amt.contains("%") {
+                let b_amount = if b_amt.contains("%") {
                     b_amt.replace("%", "").parse::<Money>().unwrap()
                 } else {
                     b_amt.parse::<Money>().unwrap()
