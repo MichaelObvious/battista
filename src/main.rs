@@ -1114,7 +1114,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             }
             
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
-            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [\\ Under your usual spending that's around {}#sub[({})] days' worth\\ ] + [_(at your average spending of `{:.0}`#sub[`({:.0})`] a day)_])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared), stats.last_n_days[&365].per_day_average.round(), stats.last_n_days[&365].per_day_95percentiles.1.round()).unwrap();
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [.\\ That's around {}#sub[({})] days' worth, given your average spending of #text(0.9em, [`{:.0}`#sub[`({:.0})`]]) a day])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared), stats.last_n_days[&365].per_day_average.round(), stats.last_n_days[&365].per_day_95percentiles.1.round()).unwrap();
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
@@ -2019,13 +2019,13 @@ fn main() {
     match compile_output {
         Err(_) => {
             eprintln!("[ERROR] Unable to compile report.");
-            println!("[INFO] Typst source code saved in  `{}`.", out_path.display());
+            println!("[INFO] Typst source code saved in `{}`.", out_path.display());
             exit(1);
         },
         Ok(x) => {
             if !x.status.success() {
                 eprintln!("[ERROR] Unable to compile report.");
-                println!("[INFO] Typst source code saved in  `{}`.", out_path.display());
+                println!("[INFO] Typst source code saved in `{}`.", out_path.display());
                 exit(1);
             } else {
                 let _ = fs::remove_file(&out_path);
