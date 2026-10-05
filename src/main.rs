@@ -1419,10 +1419,10 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 days_in_month(month_start)
             };
             let allowed = budget.general_next_period(month_start, n_days);
-            let label = if *m == 1 && false {
-                format!("#underline[{:02}/{:02}]", m, y%100)
+            let label = if *m == 1 {
+                format!("{:02}\\ #v(-0.75em) _{:02}_", m, y)
             } else {
-                format!("{:02}/{:02}", m, y%100)
+                format!("{:02}", m)
             };
             if m_stats.total > allowed {
                 writeln!(buf, "([{}], ({}, {})),", label, allowed, m_stats.total - allowed).unwrap();
