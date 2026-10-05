@@ -1420,7 +1420,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             };
             let allowed = budget.general_next_period(month_start, n_days);
             let label = if *m == 1 {
-                format!("{:02}\\ #v(-0.75em) _{:02}_", m, y)
+                format!("{:02}\\ #v(-0.75em) _{:02}_", m, y%100)
             } else {
                 format!("{:02}", m)
             };
