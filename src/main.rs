@@ -1419,7 +1419,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
                 days_in_month(month_start)
             };
             let allowed = budget.general_next_period(month_start, n_days);
-            let label = if *m == 1 {
+            let label = if *m == 1 && false {
                 format!("#underline[{:02}/{:02}]", m, y%100)
             } else {
                 format!("{:02}/{:02}", m, y%100)
@@ -1477,7 +1477,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             };
             let allowed = budget.accumulated_general(week_start, week_end);
             let label = if (week_start - TimeDelta::days(7)).month() != week_start.month() {
-                format!("#underline[{:02}/{:02}]", week_start.day(), week_start.month())
+                format!("{:02}\\ #v(-0.75em) _{:02}_", week_start.day(), week_start.month())
             } else {
                 format!("{:02}", week_start.day())
             };
