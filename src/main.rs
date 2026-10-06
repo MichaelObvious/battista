@@ -5,7 +5,7 @@ use std::{
 
 use chrono::{Datelike, IsoWeek, Local, NaiveDate, TimeDelta, Weekday};
 use quick_xml::{Reader, events::Event};
-use rust_decimal::{Decimal, prelude::FromPrimitive};
+use rust_decimal::{Decimal, RoundingStrategy, prelude::FromPrimitive};
 use rust_decimal_macros::dec;
 
 const LAST_N_DAYS: [u64; 5] = [7, 14, 30, 90, 365];
@@ -81,6 +81,7 @@ impl From<RawTransaction> for DBEntry {
 enum Rate {
     Absolute(Money),
     Percentage(Decimal),
+    Rest,
 }
 
 impl Rate {
@@ -92,10 +93,11 @@ impl Rate {
         Rate::Percentage(percentage/dec!(100))
     }
 
-    fn resolve(&self, general: Money) -> Money {
+    fn resolve(&self, general: Money) -> Option<Money> {
         match self {
-            Rate::Absolute(m) => *m,
-            Rate::Percentage(f) => (general * f).round_dp(2),
+            Rate::Absolute(m)   => Some(*m),
+            Rate::Percentage(f) => Some((general * f).round_dp(2)),
+            Rate::Rest                    => None,
         }
     }
 }
@@ -158,27 +160,49 @@ impl BudgetTimeline {
         base + extra
     }
 
+    fn fixed_sum_at(&self, date: NaiveDate) -> Money {
+        let general = self.general_at(date);
+        self.categories
+            .values()
+            .filter_map(|s| s.at(date))
+            .filter_map(|r| r.resolve(general))
+            .sum()
+    }
+
+    fn rest_count_at(&self, date: NaiveDate) -> usize {
+        self.categories
+            .values()
+            .filter_map(|s| s.at(date))
+            .filter(|r| matches!(r, Rate::Rest))
+            .count()
+    }
+    
+        fn rest_share_at(&self, date: NaiveDate) -> Money {
+            let n = self.rest_count_at(date);
+            if n == 0 {
+                return Money::ZERO;
+            }
+            let rest = self.general_at(date) - self.fixed_sum_at(date);
+            assert!(rest >= Money::ZERO, "negative rest at {}", date);
+            (rest / Decimal::from(n)).round_dp_with_strategy(2, RoundingStrategy::ToZero)
+        }
+
     fn category_at(&self, category: &str, date: NaiveDate) -> Money {
         let general = self.general_at(date);
         self.categories
             .get(category)
             .and_then(|s| s.at(date))
-            .map(|r| r.resolve(general))
+            .map(|r| r.resolve(general).unwrap_or_else(|| self.rest_share_at(date)))
             .unwrap_or(Money::ZERO)
     }
 
-    fn category_sum_at(&self, date: NaiveDate) -> Money {
-        let general = self.general_at(date);
-        self.categories
-            .values()
-            .filter_map(|s| s.at(date))
-            .map(|r| r.resolve(general))
-            .sum()
-    }
+    // fn category_sum_at(&self, date: NaiveDate) -> Money {
+    //     self.fixed_sum_at(date) + self.rest_share_at(date) * Decimal::from(self.rest_count_at(date))
+    // }
 
     fn validate_at(&self, date: NaiveDate) -> Result<(), BudgetError> {
         let general = self.general_at(date);
-        let sum = self.category_sum_at(date);
+        let sum = self.fixed_sum_at(date);
         if sum > general {
             Err(BudgetError::CategoriesExceedGeneral {
                 date,
@@ -634,7 +658,9 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
                     let date = NaiveDate::parse_from_str(attributes.get("date").unwrap().trim(), "%d/%m/%Y").unwrap();
                     let amount_str = attributes.get("amount").unwrap().trim();
                     if let Some(category) = pot_category {
-                        let rate = if amount_str.ends_with('%') {
+                        let rate = if amount_str == "%" {
+                            Rate::Rest
+                        } else if amount_str.ends_with('%') {
                             let amount_str = amount_str.replace('%', "");
                             Rate::percentage(amount_str.parse::<Money>().unwrap())
                         } else {
@@ -1699,19 +1725,15 @@ fn write_xml_file(file_path: &PathBuf, db_entries: &mut Vec<DBEntry>) -> std::io
                     _ => {}
                 }
 
-                let a_amount = if a_amt.contains("%") {
-                    a_amt.replace("%", "").parse::<Money>().unwrap()
-                } else {
-                    a_amt.parse::<Money>().unwrap()
+                let per_day = |amt: &str, dur: &Option<String>| -> Money {
+                    let amt = amt.trim();
+                    if amt == "%" {
+                        return dec!(-1); // "rest" entries sort last
+                    }
+                    let v = amt.replace('%', "").parse::<Money>().unwrap();
+                    v / dur.as_ref().map(|x| x.parse::<Money>().unwrap()).unwrap_or(dec!(0.000001))
                 };
-                let b_amount = if b_amt.contains("%") {
-                    b_amt.replace("%", "").parse::<Money>().unwrap()
-                } else {
-                    b_amt.parse::<Money>().unwrap()
-                };
-                let a_per_day = a_amount / a_dur.clone().map(|x| x.parse::<Money>().unwrap()).unwrap_or(dec!(0.000001));
-                let b_per_day = b_amount / b_dur.clone().map(|x| x.parse::<Money>().unwrap()).unwrap_or(dec!(0.000001));
-                b_per_day.partial_cmp(&a_per_day).unwrap()
+                per_day(b_amt, b_dur).partial_cmp(&per_day(a_amt, a_dur)).unwrap()
             }
 
             _ => Ordering::Equal,
