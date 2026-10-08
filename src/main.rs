@@ -13,6 +13,70 @@ const LAST_N_DAYS: [u64; 5] = [7, 14, 30, 90, 365];
 type Category = String;
 type Money = Decimal;
 
+fn format_days(days: i32, verbose: bool) -> String {
+    let days = days.abs();
+    
+    if days == 0 {
+        return "less than a day".to_string();
+    }
+    
+    // Calculate each unit
+    let years = days / 365;
+    let remaining = days % 365;
+    let months = remaining / 30;
+    let remaining = remaining % 30;
+    let weeks = remaining / 7;
+    let remaining_days = remaining % 7;
+    
+    // Build the string
+    let mut parts: Vec<String> = Vec::new();
+    
+    if years > 0 {
+        parts.push(format!("{} year{}", years, if years == 1 { "" } else { "s" }));
+    }
+    if months > 0 {
+        parts.push(format!("{} month{}", months, if months == 1 { "" } else { "s" }));
+    }
+    if weeks > 0 && years == 0 {
+        parts.push(format!("{} week{}", weeks, if weeks == 1 { "" } else { "s" }));
+    }
+    if remaining_days > 0 && years == 0 && months == 0 {
+        parts.push(format!("{} day{}", remaining_days, if remaining_days == 1 { "" } else { "s" }));
+    }
+    
+    if parts.is_empty() {
+        return "less than a day".to_string();
+    }
+    
+    // Verbose: "1 year and 3 months"
+    // Short: "1y 3mo"
+    if verbose {
+        if parts.len() == 1 {
+            parts.into_iter().next().unwrap()
+        } else {
+            parts.join(" and ")
+        }
+    } else {
+        // Short format with abbreviations
+        let mut short_parts: Vec<String> = Vec::new();
+        
+        if years > 0 {
+            short_parts.push(format!("{}y", years));
+        }
+        if months > 0 {
+            short_parts.push(format!("{}mo", months));
+        }
+        if weeks > 0 && years == 0 {
+            short_parts.push(format!("{}w", weeks));
+        }
+        if remaining_days > 0 && years == 0 && months == 0 {
+            short_parts.push(format!("{}d", remaining_days));
+        }
+        
+        short_parts.join(" ")
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 struct Transaction {
     value: Money,
@@ -1144,7 +1208,12 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             }
             
             writeln!(buf, "#align(center, box(radius: 2em, stroke: 2pt + black, inset: 2em, [").unwrap();
-            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [.\\ That's around {}#sub[({})] days' worth, given your average spending of #text(0.9em, [`{:.0}`#sub[`({:.0})`]]) a day])", spared, predict(stats.last_n_days[&365].per_day_average, spared), predict(stats.last_n_days[&365].per_day_95percentiles.1, spared), stats.last_n_days[&365].per_day_average.round(), stats.last_n_days[&365].per_day_95percentiles.1.round()).unwrap();
+            let avg_prediction = predict(stats.last_n_days[&365].per_day_average, spared);
+            let wc_prediction = predict(stats.last_n_days[&365].per_day_95percentiles.1, spared);
+
+            let worth_time_label = format!("`{}`#sub[`({})`] days", avg_prediction, wc_prediction);
+            let worth_time_note = format!("#footnote[_That is approximately_ {}#sub[({})].]", format_days(avg_prediction, true), format_days(wc_prediction, true));
+            writeln!(buf, "#align(center, [You spared ] + text(fill: green, [`{:.0}`]) + [.\\ That's worth around {}{}, given your average spending of #text(0.9em, [`{:.0}`#sub[`({:.0})`]]) a day])", spared, worth_time_label, worth_time_note, stats.last_n_days[&365].per_day_average.round(), stats.last_n_days[&365].per_day_95percentiles.1.round()).unwrap();
             writeln!(buf, "]))").unwrap();
             writeln!(buf, "#v(3em)").unwrap();
             
