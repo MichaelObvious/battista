@@ -196,9 +196,9 @@ impl BudgetTimeline {
             .unwrap_or(Money::ZERO)
     }
 
-    // fn category_sum_at(&self, date: NaiveDate) -> Money {
-    //     self.fixed_sum_at(date) + self.rest_share_at(date) * Decimal::from(self.rest_count_at(date))
-    // }
+    fn category_sum_at(&self, date: NaiveDate) -> Money {
+        self.fixed_sum_at(date) + self.rest_share_at(date) * Decimal::from(self.rest_count_at(date))
+    }
 
     fn validate_at(&self, date: NaiveDate) -> Result<(), BudgetError> {
         let general = self.general_at(date);
@@ -1064,7 +1064,11 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "      inner-radius: 4.15,").unwrap();
     writeln!(buf, "      slice-style: (").unwrap();
     for (i,_) in slices.iter().enumerate() {
-        let mut transparency = (i as f64 / (slices.len()-1) as f64).sqrt() * 100.0;
+        let mut transparency = if budget.category_sum_at(today) == budget.general_at(today) {
+            (i as f64 / (slices.len()) as f64).sqrt() * 100.0
+        } else {
+            (i as f64 / (slices.len()-1) as f64).sqrt() * 100.0
+        };
         if transparency.is_nan() {
             transparency = 0.0;
         }
