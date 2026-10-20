@@ -499,7 +499,6 @@ impl TempStats {
 
 #[derive(Debug, Default)]
 struct StatsCollection {
-    #[allow(unused)]
     start: NaiveDate,
     #[allow(unused)]
     end: NaiveDate,
@@ -570,23 +569,12 @@ fn next_month(d: NaiveDate) -> NaiveDate {
     NaiveDate::from_ymd_opt(year + if month == 12 { 1 } else { 0 }, (month % 12) + 1, 1).unwrap()
 }
 
-fn days_in_month(d: NaiveDate) -> u64 {
-    let year = d.year();
-    let month = d.month0() + 1;
-    let days = (next_month(d)
-        - NaiveDate::from_ymd_opt(year, month, 1).unwrap())
-    .num_days();
-    assert!(days >= 0);
-    days as u64
-}
-
-fn days_in_year(d: NaiveDate) -> u64 {
-    let year = d.year();
-    let days =  (NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap()
-        - NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
-    .num_days();
-    assert!(days >= 0);
-    days as u64
+fn safe_percentage_of(a: Decimal, b: Decimal) -> Decimal {
+    if b.is_zero() {
+        Decimal::ZERO
+    } else {
+        a * dec!(100.0) / b
+    }
 }
 
 fn validate_amount(amount: &str) -> bool {
@@ -596,7 +584,7 @@ fn validate_amount(amount: &str) -> bool {
     }
 
     if let Ok(parsed) = amount_str.parse::<Money>() {
-        parsed > Decimal::ZERO && parsed.fract().mantissa() < 100
+        parsed > Decimal::ZERO && parsed.round_dp(2) == parsed
     } else {
         false
     }
@@ -782,6 +770,13 @@ fn parse_file(filepath: &PathBuf) -> (Vec<Transaction>, BudgetTimeline) {
         }
     }
 
+    let today = Local::now().date_naive();
+    let before = transactions.len();
+    transactions.retain(|t| t.date <= today);
+    if transactions.len() != before {
+        eprintln!("[WARNING] Ignoring {} transaction(s) dated in the future.", before - transactions.len());
+    }
+
     match budget.validate() {
         Err(errors) => {
             for e in errors {
@@ -879,11 +874,7 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         let period_start = year_start.max(start);
         let period_end = (NaiveDate::from_ymd_opt(*k + 1, 1, 1).unwrap() - TimeDelta::days(1))
             .min(today + TimeDelta::days(1));
-        let days = days_in_year(year_start);
-        let days2 = (period_end - period_start).num_days()+1;
-        assert!(days2 >= 0);
-        let days2 = days2 as u64;
-        let ndays = days.min(days2);
+        let ndays = (period_end - period_start).num_days() + 1;
         assert!(ndays > 0);
         v.calc_averages(period_start, ndays as u64);
     }
@@ -897,18 +888,14 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
                 - TimeDelta::days(1);
         let period_start = month_start.max(start);
         let period_end = (month_end + TimeDelta::days(1)).min(today + TimeDelta::days(1));
-        let days = days_in_month(month_start);
-        let days2 = (period_end - period_start).num_days()+1;
-        assert!(days2 >= 0);
-        let days2 = days2 as u64;
-        let ndays = days.min(days2);
+        let ndays = (period_end - period_start).num_days() + 1;
         assert!(ndays > 0);
         v.calc_averages(period_start, ndays as u64);
     }
 
     for (week, v) in tsc.weekly.iter_mut() {
         let week_start = NaiveDate::from_isoywd_opt(week.year(), week.week(), Weekday::Mon).unwrap();
-        let week_end = today.min(week_start + TimeDelta::days(7));
+        let week_end = today.min(week_start + TimeDelta::days(6));
         let ndays = (week_end - week_start).num_days()+1;
         assert!(ndays > 0);
         v.calc_averages(week_start, ndays as u64);
@@ -919,7 +906,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
         tsc.last_n_days.get_mut(&n).unwrap().calc_averages(today - TimeDelta::days(n as i64 - 1), n);
     }
 
-    tsc.all_time.calc_averages(tsc.start, (tsc.end - tsc.start).num_days() as u64 + 1);
+    let all_time_end = tsc.end.max(today);
+    tsc.all_time.calc_averages(tsc.start, (all_time_end - tsc.start).num_days() as u64 + 1);
 
     return tsc.into_stats_collection();
 }
@@ -936,9 +924,8 @@ fn percentage_to_color(x: Decimal) -> &'static str {
     }
 }
 
-fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTimeline, n_days: u64) {
+fn write_typ_table(buf: &mut Vec<u8>, stats: &Stats, budget: &BudgetTimeline, n_days: u64) {
     let today = Local::now().date_naive();
-    let stats = stats.last_n_days.get(&n_days).unwrap();
     writeln!(buf, "== Last {} days", n_days).unwrap();
         writeln!(buf, "").unwrap();
         writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Budget*], [*Allowed spending*],").unwrap();
@@ -1002,7 +989,9 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &StatsCollection, budget: &BudgetTi
         if n_days >= 90 {
             writeln!(buf, "=== Biggest expenses (last {} days)", n_days).unwrap();
 
-            let biggest_expenses = stats.by_note.iter().filter(|x| x.1/stats.total >= dec!(0.01) && x.1 >= dec!(50.0)).zip(0..20).collect::<Vec<_>>();
+            let biggest_expenses = stats.by_note.iter()
+                .filter(|x| stats.total > Money::ZERO && x.1/stats.total >= dec!(0.01) && x.1 >= dec!(50.0))
+                .zip(0..20).collect::<Vec<_>>();
             // let max_expense = biggest_expenses.first().unwrap().0.1;
             writeln!(buf, "#align(center, table(columns: 3, stroke: 0pt, align: (right, left, right), ").unwrap();
             for ((note, amount),i) in biggest_expenses {
@@ -1402,13 +1391,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             } else {
                 NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
             };
-            let d_total_days = if stats.start.year() == *y {
-                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as u64
-            } else if stats.end.year() == *y && today.year() == *y {
-                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as u64
-            } else {
-                days_in_year(year_start)
-            };
+            let year_end = NaiveDate::from_ymd_opt(*y, 12, 31).unwrap().min(today);
+            let d_total_days = ((year_end - year_start).num_days() + 1) as u64;
             total += y_stats.total;
             total_days += d_total_days;
         }
@@ -1417,7 +1401,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget: Money = accumulated_total_days*dec!(365.0)/Decimal::from(total_days);
         let overspending = total - accumulated_total_days;
-        let percentage =  average*dec!(100.0)/average_budget;
+        let percentage = safe_percentage_of(average, average_budget);
         let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 365 days\\ ", average, color).unwrap();
         write!(buf, "_{:.0}% of_ `{:.0}` _(budget)_\\ ", percentage, average_budget).unwrap();
@@ -1443,13 +1427,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             } else {
                 NaiveDate::from_ymd_opt(*y,1, 1).unwrap()
             };
-            let days = if stats.start.year() == *y {
-                days_in_year(year_start) - (year_start - NaiveDate::from_ymd_opt(*y,1, 1).unwrap()).num_days() as u64
-            } else if stats.end.year() == *y && today.year() == *y {
-                days_in_year(year_start) - ((NaiveDate::from_ymd_opt(*y+1,1, 1).unwrap() - today).num_days() - 1) as u64
-            } else {
-                days_in_year(year_start)
-            };
+            let year_end = NaiveDate::from_ymd_opt(*y, 12, 31).unwrap().min(today);
+            let days = ((year_end - year_start).num_days() + 1) as u64;
             let allowed = budget.general_next_period(year_start, days as u64);
             if y_stats.total > allowed {
                 writeln!(buf, "([{}], ({}, {})),", y, allowed, y_stats.total - allowed).unwrap();
@@ -1473,13 +1452,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             } else {
                 NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
             };
-            let d_total_days = if stats.start.year() == *y && stats.start.month() == *m {
-                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
-            } else if /*stats.end.year() == *y && stats.end.month() == *m ||*/ today.year() == *y && today.month() == *m {
-                ((today - month_start).num_days() + 1) as u64
-            } else {
-                days_in_month(month_start)
-            };
+            let month_end = (next_month(month_start) - TimeDelta::days(1)).min(today);
+            let d_total_days = ((month_end - month_start).num_days() + 1) as u64;
             total += m_stats.total;
             if d_total_days > 35 {
                 let x = format!("{:?} -> {:?}", month_start, today);
@@ -1491,7 +1465,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * dec!(30.0) / Decimal::from(total_days);
         let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget =accumulated_total_days*dec!(30.0)/Decimal::from(total_days);
-        let percentage =  average*dec!(100.0)/average_budget;
+        let percentage = safe_percentage_of(average, average_budget);
         let color = percentage_to_color(percentage/dec!(100.0));
         let overspent = total - accumulated_total_days;
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 30 days\\ ", average, color).unwrap();
@@ -1518,13 +1492,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             } else {
                 NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()
             };
-            let n_days = if stats.start.year() == *y && stats.start.month() == *m {
-                days_in_month(month_start) - (month_start - NaiveDate::from_ymd_opt(*y,*m, 1).unwrap()).num_days() as u64
-            } else if today.year() == *y && today.month() == *m {
-                (today - month_start).num_days() as u64 + 1
-            } else {
-                days_in_month(month_start)
-            };
+            let month_end = (next_month(month_start) - TimeDelta::days(1)).min(today);
+            let n_days = ((month_end - month_start).num_days() + 1) as u64;
             let allowed = budget.general_next_period(month_start, n_days);
             let label = if *m == 1 {
                 format!("{:02}\\ #v(-0.75em) _{:02}_", m, y%100)
@@ -1546,7 +1515,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "= 26 Weeks Overview").unwrap();
     writeln!(buf, "").unwrap();
         let mut total = dec!(0.0);
-        let total_days = 7*25 + today.weekday().num_days_from_sunday() as i64;
+        let total_days = 7*25 + today.weekday().num_days_from_monday() as i64 + 1;
         for (_, w_stats) in stats.weekly.iter().rev().zip(0..26).map(|x| x.0).rev() {
             total += w_stats.total;
         }
@@ -1554,7 +1523,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let average = total * dec!(7.0) / Decimal::from(total_days);
         let accumulated_total_days = budget.general_prev_period(total_days as u64, today);
         let average_budget = accumulated_total_days*dec!(7.0)/Decimal::from(total_days);
-        let percentage =  average*dec!(100.0)/average_budget;
+        let percentage =  safe_percentage_of(average, average_budget);
         let overspent = total - accumulated_total_days;
         let color = percentage_to_color(percentage/dec!(100.0));
         write!(buf, "#align(center, [#text([`{:.0}`], fill: {}) in average per 7 days\\ ", average, color).unwrap();
@@ -1606,7 +1575,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
         let mut ns =stats.last_n_days.keys().collect::<Vec<_>>();
         ns.sort();
         for n_days in ns {
-            write_typ_table(&mut buf, stats, budget, *n_days);
+            write_typ_table(&mut buf, &stats.last_n_days[n_days], budget, *n_days);
         }
 
     writeln!(buf, "= Overview of Weekdays").unwrap();
@@ -1622,7 +1591,8 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "chart.columnchart((").unwrap();
             let last_days_stats = &stats.last_n_days[&n_days];
             for (wd, amount) in last_days_stats.by_day_of_week.iter() {
-                    writeln!(buf, "(text(8pt,[{}]), {:.2}),", wd, amount / last_days_stats.total * dec!(100.0)).unwrap();
+                let share = safe_percentage_of(*amount, last_days_stats.total);
+                writeln!(buf, "(text(8pt,[{}]), {:.2}),", wd, share).unwrap();
             }
             writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
             writeln!(buf, "}})]").unwrap();
@@ -1969,8 +1939,14 @@ fn add_transactions_interactive(file_path: &PathBuf) -> std::io::Result<()> {
         )
     };
     
-    let last_date = transactions.iter().map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap()).max().unwrap();
-    let mut last_transactions =  transactions.iter().filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").unwrap() == last_date).map(|x| x.clone()).collect::<Vec<_>>();
+    let last_date = transactions.iter().filter_map(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").ok()).max();
+    let mut last_transactions = match last_date {
+        Some(d) => transactions.iter()
+            .filter(|x| NaiveDate::parse_from_str(&x.date, "%d/%m/%Y").ok() == Some(d))
+            .cloned()
+            .collect::<Vec<_>>(),
+        None => Vec::new(),
+    };
 
     let mut added_transaction_idx = 0;
     loop {
