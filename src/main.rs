@@ -1157,9 +1157,9 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     let allowed_next_month = next_month_budget + budget.general_prev_period(30, today) - stats.last_n_days.get(&30).unwrap().total;
     let overspent_total = accumulated.last().unwrap().clone();
     let next_year_budget =  budget.general_next_period(today, 365);
-    let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - next_year_budget)/next_year_budget).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION / dec!(0.95)) * dec!(0.95);
+    let year_fraction = (dec!(1.0) - dec!(1.25) * (stats.last_n_days.get(&365).unwrap().total - next_year_budget)/next_year_budget) * dec!(0.95);
     let month_fraction = allowed_next_month / next_month_budget * dec!(0.95);
-    let fraction = year_fraction.min(month_fraction).min(dec!(0.8));
+    let fraction = year_fraction.min(month_fraction).min(dec!(0.8)).max(RECOVERY_PLAN_MIN_BUDGET_FRACTION);
     let recover_time_days = (Decimal::from(recovery_days(overspent_total, fraction, today, budget)) * dec!(1.1)).ceil();
     writeln!(buf, "#pagebreak()").unwrap();
     writeln!(buf, "#v(1fr)").unwrap();
