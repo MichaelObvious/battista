@@ -507,6 +507,8 @@ struct StatsCollection {
     monthly: Vec<((i32, u32), Stats)>, // year, month
     weekly: Vec<(IsoWeek, Stats)>,     // year, week
     last_n_days: HashMap<u64, Stats>,
+    #[allow(unused)]
+    all_time: Stats,
     transactions: Vec<Transaction>,
 }
 
@@ -518,6 +520,7 @@ struct TempStatsCollection {
     monthly: HashMap<(i32, u32), TempStats>, // year, month
     weekly: HashMap<IsoWeek, TempStats>,     // year, week
     last_n_days: HashMap<u64, TempStats>,
+    all_time: TempStats,
     transactions: Vec<Transaction>
 }
 
@@ -548,6 +551,7 @@ impl TempStatsCollection {
             monthly: monthly,
             weekly: weekly,
             last_n_days: self.last_n_days.into_iter().map(|(x,y)| (x, y.into_stats())).collect(),
+            all_time: self.all_time.into_stats(),
             transactions: self.transactions,
         }
     }
@@ -839,6 +843,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
                 tsc.last_n_days.get_mut(&i).unwrap().update(transaction);
             }
         }
+
+        tsc.all_time.update(transaction);
     }
 
     tsc.start = start;
@@ -912,6 +918,8 @@ fn get_stats(transactions: &Vec<Transaction>) -> StatsCollection {
     for n in ns.into_iter() {
         tsc.last_n_days.get_mut(&n).unwrap().calc_averages(today - TimeDelta::days(n as i64 - 1), n);
     }
+
+    tsc.all_time.calc_averages(tsc.start, (tsc.end - tsc.start).num_days() as u64 + 1);
 
     return tsc.into_stats_collection();
 }
