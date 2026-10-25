@@ -1581,7 +1581,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
     writeln!(buf, "= Overview of Weekdays").unwrap();
         writeln!(buf, "#columns(2)[").unwrap();
         for n_days in LAST_N_DAYS {
-            if n_days < 14 {
+            if n_days < 30 {
                 continue;
             }
             writeln!(buf, "#align(center, text([*Last {} days*], 14pt))", n_days).unwrap();
@@ -1597,6 +1597,22 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
             writeln!(buf, "}})]").unwrap();
         }
+
+        {
+            writeln!(buf, "#align(center, text([*All time*], 14pt))").unwrap();
+            writeln!(buf, "#align(center)[#cetz.canvas({{").unwrap();
+            writeln!(buf, "import cetz.draw: *").unwrap();
+            writeln!(buf, "import cetz-plot: *").unwrap();
+            writeln!(buf, "chart.columnchart((").unwrap();
+            let last_days_stats = &stats.all_time;
+            for (wd, amount) in last_days_stats.by_day_of_week.iter() {
+                let share = safe_percentage_of(*amount, last_days_stats.total);
+                writeln!(buf, "(text(8pt,[{}]), {:.2}),", wd, share).unwrap();
+            }
+            writeln!(buf, "), mode: \"stacked\", size: (8, 4), bar-style: cetz.palette.new(dash: (\"solid\", \"solid\", \"dashed\"), colors: (black.lighten(85%), red.lighten(50%), black.transparentize(100%))), x-label: [Weekday], y-label: [Amount spent (%)])").unwrap();
+            writeln!(buf, "}})]").unwrap();
+        }
+
         writeln!(buf, "]").unwrap();
 
     writeln!(buf, "").unwrap();
