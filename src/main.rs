@@ -1180,7 +1180,7 @@ fn write_typ_report(file_path: &PathBuf, stats: &StatsCollection, budget: &Budge
             writeln!(buf, "    [_Next day_],   align(right, [`{:.0}`]),", fraction * budget.general_at(today)).unwrap();
             writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
             writeln!(buf, "    )").unwrap();
-            writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&30).unwrap().per_day_average.round()).unwrap();
+            writeln!(buf, "    #text(0.8em, [_For reference, you usually spend around_ `{:.0}` _daily._])", stats.last_n_days.get(&365).unwrap().per_day_average.round()).unwrap();
             writeln!(buf, "])").unwrap();
             writeln!(buf, "#v(0.5em)").unwrap();
             if overspent_total > dec!(0.0) {
