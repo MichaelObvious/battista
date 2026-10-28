@@ -928,7 +928,7 @@ fn write_typ_table(buf: &mut Vec<u8>, stats: &Stats, budget: &BudgetTimeline, n_
     let today = Local::now().date_naive();
     writeln!(buf, "== Last {} days", n_days).unwrap();
         writeln!(buf, "").unwrap();
-        writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), [*Category*], [*Amount*], [*% of Budget*], [*Allowed spending*],").unwrap();
+        writeln!(buf, "#align(center, table(columns: 4, align: left, stroke: 0pt, column-gutter: 5pt, table.hline(stroke: 1pt), table.header([*Category*], [*Amount*], [*% of Budget*], [*Allowed spending*],),").unwrap();
         writeln!(buf, "    table.hline(stroke: 1pt),").unwrap();
         let n_days_accumulated =  budget.general_prev_period(n_days, today);
         for (category, amount) in stats.by_category.iter() {
